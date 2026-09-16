@@ -1,0 +1,28 @@
+id = "dinho/lyrics"
+name = "Lyrics"
+version = "1.0.0"
+plugin_api = 23
+author = "dinho"
+license = "MIT"
+dependencies = ["playerctl"]
+tags = ["lyrics", "mpris", "desktop"]
+icon = "music-note"
+description = "Synchronized lyrics desktop widget using MPRIS."
+
+[[desktop_widget]]
+id = "lyrics"
+entry = "lyrics.luau"
+
+  [[desktop_widget.setting]]
+  key = "current_color"
+  type = "color"
+  label_key = "settings.current_color.label"
+  description_key = "settings.current_color.description"
+  default = "primary"
+
+  [[desktop_widget.setting]]
+  key = "secondary_color"
+  type = "color"
+  label_key = "settings.secondary_color.label"
+  description_key = "settings.secondary_color.description"
+  default = "secondary"
