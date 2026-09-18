@@ -9,20 +9,6 @@
 # On every row, updated_at dates the commit that first shipped that row's version.
 
 [[plugin]]
-id = "shin/lrc"
-name = "LRC"
-version = "1.2.0"
-updated_at = 1789564965
-added_at = 1789564965
-author = "shin"
-license = "MIT"
-icon = "music"
-description = "Displays current song lyrics via lrc_tty."
-deprecated = false
-plugin_api = 3
-tags = ["bar", "music"]
-
-[[plugin]]
 id = "dinho/lyrics"
 name = "Lyrics"
 version = "1.0.0"
