@@ -1,15 +1,8 @@
---!nonstrict
-
 local PLAYERCTL = "/run/current-system/sw/bin/playerctl"
 
+
 ------------------------------------------------------------
--- CAMINHO DOS ARQUIVOS
---
--- Não usamos /home/dinho.
---
--- $HOME é expandido pelo shell diretamente nos comandos.
--- Não passar esses caminhos por shellQuote(), pois isso
--- impediria a expansão de $HOME.
+-- FILE PATHS
 ------------------------------------------------------------
 
 local LYRICS_DIR =
@@ -24,11 +17,6 @@ local LYRICS_FILE_2 =
 
 ------------------------------------------------------------
 -- SLOTS
---
--- Cada player/aplicativo recebe um slot.
---
--- slot 1 -> lyrics_1.lrc
--- slot 2 -> lyrics_2.lrc
 ------------------------------------------------------------
 
 local slots = {
@@ -42,12 +30,56 @@ local slots = {
 
         position = 0,
 
+        videoTime = nil,
+        lastVideoTime = nil,
+
+        referenceTime = nil,
+
+        seekCandidateTime = nil,
+        seekCandidateCount = 0,
+
+        lastResolvedLine = 0,
+        lastResolvedVideoTime = nil,
+
+        displayCenter = 0,
+
+        visibleLyrics = {},
         lyrics = {},
+
+        hasTimedLyrics = false,
 
         loaded = false,
         loading = false,
 
         state = "no_player",
+
+        seek = "não",
+
+        ------------------------------------------------
+        -- DEAD ZONE DURING RELOAD.
+        ------------------------------------------------
+
+        seekReloading = false,
+
+        ------------------------------------------------
+        -- RECOVERY THROUGH A PHYSICAL PAUSE/PLAY.
+        --
+        -- When a seek is detected:
+        --
+        -- 1. wait for the pause/play cycle;
+        -- 2. ignore positions during the transition;
+        -- 3. wait for a new Playing state;
+        -- 4. use that reading as the new reference.
+        ------------------------------------------------
+
+        quickPauseRecovery = false,
+        quickPauseCommandRunning = false,
+
+        ------------------------------------------------
+        -- IDENTIFIES THE CURRENT SESSION.
+        ------------------------------------------------
+
+        sessionId = 0,
 
         lastLookupKey = "",
     },
@@ -62,12 +94,37 @@ local slots = {
 
         position = 0,
 
+        videoTime = nil,
+        lastVideoTime = nil,
+
+        referenceTime = nil,
+
+        seekCandidateTime = nil,
+        seekCandidateCount = 0,
+
+        lastResolvedLine = 0,
+        lastResolvedVideoTime = nil,
+
+        displayCenter = 0,
+
+        visibleLyrics = {},
         lyrics = {},
+
+        hasTimedLyrics = false,
 
         loaded = false,
         loading = false,
 
         state = "no_player",
+
+        seek = "não",
+
+        seekReloading = false,
+
+        quickPauseRecovery = false,
+        quickPauseCommandRunning = false,
+
+        sessionId = 0,
 
         lastLookupKey = "",
     },
@@ -75,17 +132,44 @@ local slots = {
 
 
 ------------------------------------------------------------
--- SLOT ATUAL EXIBIDO
+-- ACTIVE SLOT
 ------------------------------------------------------------
 
 local activeSlot = 1
 
 
 ------------------------------------------------------------
--- CONFIGURAÇÕES
+-- PLAYERCTL CONTROL
+------------------------------------------------------------
+
+local playerctlInFlight = false
+
+
+------------------------------------------------------------
+-- SETTINGS
 ------------------------------------------------------------
 
 local LYRICS_OFFSET = 0
+local LYRICS_SPEED = 1.01
+
+
+------------------------------------------------------------
+-- SEEK DETECTION TOLERANCE
+------------------------------------------------------------
+
+local SEEK_THRESHOLD = 3.0
+
+
+------------------------------------------------------------
+-- QUICK PAUSE DURING SEEK
+------------------------------------------------------------
+
+local SEEK_PAUSE_SECONDS = 0.01
+
+
+------------------------------------------------------------
+-- POSITION CACHE
+------------------------------------------------------------
 
 local MAX_POSITION_CACHE = 3
 
@@ -94,14 +178,16 @@ local positionCacheOrder = {}
 
 
 ------------------------------------------------------------
--- PARSER LRC
+-- LRC PARSER
 ------------------------------------------------------------
 
 local function parseLrc(text)
 
     local result = {}
 
-    for line in text:gmatch("[^\r\n]+") do
+    for line in text:gmatch(
+        "[^\r\n]+"
+    ) do
 
         for minutes,
             seconds,
@@ -141,14 +227,16 @@ end
 
 
 ------------------------------------------------------------
--- PARSER DE LETRA SIMPLES
+-- PLAIN TEXT PARSER
 ------------------------------------------------------------
 
 local function parsePlain(text)
 
     local result = {}
 
-    for line in text:gmatch("[^\r\n]+") do
+    for line in text:gmatch(
+        "[^\r\n]+"
+    ) do
 
         if line ~= "" then
 
@@ -169,10 +257,6 @@ end
 
 ------------------------------------------------------------
 -- SHELL QUOTE
---
--- Usado para conteúdo da letra.
---
--- NÃO usar em caminhos que contenham $HOME.
 ------------------------------------------------------------
 
 local function shellQuote(value)
@@ -180,8 +264,8 @@ local function shellQuote(value)
     value =
         tostring(value or "")
 
-    return "'" ..
-        value:gsub(
+    return "'"
+        .. value:gsub(
             "'",
             "'\\''"
         )
@@ -190,23 +274,163 @@ end
 
 
 ------------------------------------------------------------
--- CRIA DIRETÓRIO E ARQUIVOS
+-- NORMALIZE MPRIS POSITION
 ------------------------------------------------------------
 
-local function ensureLyricsFiles(callback)
+local function normalizePosition(value)
+
+    local n =
+        tonumber(value)
+
+    if not n then
+        return nil
+    end
+
+
+    if n > 100000 then
+
+        return n / 1000000
+    end
+
+
+    return n
+end
+
+
+------------------------------------------------------------
+-- POSITION CACHE
+------------------------------------------------------------
+
+local function cachePosition(
+    key,
+    position
+)
+
+    positionCache[key] =
+        position
+
+
+    for i, cachedKey in ipairs(
+        positionCacheOrder
+    ) do
+
+        if cachedKey == key then
+
+            table.remove(
+                positionCacheOrder,
+                i
+            )
+
+            break
+        end
+    end
+
+
+    table.insert(
+        positionCacheOrder,
+        key
+    )
+
+
+    while #positionCacheOrder
+        > MAX_POSITION_CACHE do
+
+        local oldestKey =
+            table.remove(
+                positionCacheOrder,
+                1
+            )
+
+        positionCache[oldestKey] =
+            nil
+    end
+end
+
+
+local function clearCachedPosition(
+    key
+)
+
+    positionCache[key] =
+        nil
+
+
+    for i, cachedKey in ipairs(
+        positionCacheOrder
+    ) do
+
+        if cachedKey == key then
+
+            table.remove(
+                positionCacheOrder,
+                i
+            )
+
+            break
+        end
+    end
+end
+
+
+------------------------------------------------------------
+-- BUILD VISUAL LYRICS LIST
+------------------------------------------------------------
+
+local function buildVisibleLyrics(
+    slot
+)
+
+    slot.visibleLyrics =
+        {}
+
+
+    local visualIndex =
+        0
+
+
+    for i = 1, #slot.lyrics do
+
+        local line =
+            slot.lyrics[i]
+
+
+        if line.text
+            and line.text:match("%S") then
+
+            visualIndex =
+                visualIndex + 1
+
+
+            line.visualIndex =
+                visualIndex
+
+
+            table.insert(
+                slot.visibleLyrics,
+
+                {
+                    originalIndex = i,
+                    line = line,
+                }
+            )
+        end
+    end
+end
+
+
+------------------------------------------------------------
+-- CREATE DIRECTORY AND FILES
+------------------------------------------------------------
+
+local function ensureLyricsFiles(
+    callback
+)
 
     local command =
         "mkdir -p \"$HOME/.cache/noctalia/lyrics\""
         .. " && touch "
         .. "\"$HOME/.cache/noctalia/lyrics/lyrics_1.lrc\" "
         .. "\"$HOME/.cache/noctalia/lyrics/lyrics_2.lrc\""
-
-
-    print(
-        "LYRICS: criando arquivos",
-        LYRICS_FILE_1,
-        LYRICS_FILE_2
-    )
 
 
     noctalia.runAsync(
@@ -217,25 +441,11 @@ local function ensureLyricsFiles(callback)
             if result
                 and result.exitCode == 0 then
 
-                print(
-                    "LYRICS: arquivos prontos",
-                    LYRICS_FILE_1,
-                    LYRICS_FILE_2
-                )
-
                 callback(true)
 
                 return
             end
 
-
-            print(
-                "LYRICS: erro criando arquivos",
-                LYRICS_DIR,
-                result
-                    and result.stderr
-                    or "sem resultado"
-            )
 
             callback(false)
         end
@@ -244,86 +454,7 @@ end
 
 
 ------------------------------------------------------------
--- POSIÇÃO MPRIS
-------------------------------------------------------------
-
-local function normalizePosition(value)
-
-    local n = tonumber(value)
-
-    if not n then
-        return nil
-    end
-
-    -- playerctl/MPRIS normalmente usa microssegundos.
-    if n > 100000 then
-        return n / 1000000
-    end
-
-    return n
-end
-
-
-------------------------------------------------------------
--- CACHE DE POSIÇÃO
-------------------------------------------------------------
-
-local function cachePosition(key, position)
-
-    positionCache[key] = position
-
-    for i, cachedKey in ipairs(positionCacheOrder) do
-
-        if cachedKey == key then
-
-            table.remove(
-                positionCacheOrder,
-                i
-            )
-
-            break
-        end
-    end
-
-    table.insert(
-        positionCacheOrder,
-        key
-    )
-
-    while #positionCacheOrder > MAX_POSITION_CACHE do
-
-        local oldestKey =
-            table.remove(
-                positionCacheOrder,
-                1
-            )
-
-        positionCache[oldestKey] = nil
-    end
-end
-
-
-local function clearCachedPosition(key)
-
-    positionCache[key] = nil
-
-    for i, cachedKey in ipairs(positionCacheOrder) do
-
-        if cachedKey == key then
-
-            table.remove(
-                positionCacheOrder,
-                i
-            )
-
-            break
-        end
-    end
-end
-
-
-------------------------------------------------------------
--- SALVA A LETRA INTEIRA NO SLOT
+-- SAVE LYRICS
 ------------------------------------------------------------
 
 local function saveLyricsFile(
@@ -335,10 +466,19 @@ local function saveLyricsFile(
     local filename
 
     if slot.id == 1 then
-        filename = "lyrics_1.lrc"
+
+        filename =
+            "lyrics_1.lrc"
+
     else
-        filename = "lyrics_2.lrc"
+
+        filename =
+            "lyrics_2.lrc"
     end
+
+
+    local sessionId =
+        slot.sessionId
 
 
     local command =
@@ -356,29 +496,20 @@ local function saveLyricsFile(
 
         function(result)
 
-            if result
-                and result.exitCode == 0 then
-
-                print(
-                    "LYRICS: letra salva no slot",
-                    slot.id,
-                    filename
-                )
-
-                callback(true)
+            if slot.sessionId
+                ~= sessionId then
 
                 return
             end
 
 
-            print(
-                "LYRICS: erro salvando slot",
-                slot.id,
-                filename,
-                result
-                    and result.stderr
-                    or "sem resultado"
-            )
+            if result
+                and result.exitCode == 0 then
+
+                callback(true)
+
+                return
+            end
 
 
             callback(false)
@@ -388,7 +519,7 @@ end
 
 
 ------------------------------------------------------------
--- LÊ A LETRA INTEIRA DO SLOT
+-- LOAD LYRICS
 ------------------------------------------------------------
 
 local function loadLyricsFile(
@@ -399,10 +530,19 @@ local function loadLyricsFile(
     local filename
 
     if slot.id == 1 then
-        filename = "lyrics_1.lrc"
+
+        filename =
+            "lyrics_1.lrc"
+
     else
-        filename = "lyrics_2.lrc"
+
+        filename =
+            "lyrics_2.lrc"
     end
+
+
+    local sessionId =
+        slot.sessionId
 
 
     local command =
@@ -417,18 +557,16 @@ local function loadLyricsFile(
 
         function(result)
 
+            if slot.sessionId
+                ~= sessionId then
+
+                return
+            end
+
+
             if not result
                 or result.exitCode ~= 0
                 or not result.stdout then
-
-                print(
-                    "LYRICS: erro lendo arquivo",
-                    slot.id,
-                    filename,
-                    result
-                        and result.stderr
-                        or "sem resultado"
-                )
 
                 callback(false)
 
@@ -442,25 +580,10 @@ local function loadLyricsFile(
 
             if text == "" then
 
-                print(
-                    "LYRICS: arquivo vazio",
-                    slot.id,
-                    filename
-                )
-
                 callback(false)
 
                 return
             end
-
-
-            print(
-                "LYRICS: arquivo lido",
-                slot.id,
-                filename,
-                "chars=",
-                #text
-            )
 
 
             ------------------------------------------------
@@ -469,14 +592,6 @@ local function loadLyricsFile(
 
             local parsed =
                 parseLrc(text)
-
-
-            print(
-                "LYRICS: LRC parse",
-                slot.id,
-                "lines=",
-                #parsed
-            )
 
 
             if #parsed > 0 then
@@ -493,14 +608,20 @@ local function loadLyricsFile(
                 slot.state =
                     "lyrics"
 
+                slot.hasTimedLyrics =
+                    true
 
-                print(
-                    "LYRICS: carregado",
-                    slot.id,
-                    "first=",
-                    slot.lyrics[1]
-                        and slot.lyrics[1].text
-                        or "NIL"
+                slot.lastResolvedLine =
+                    0
+
+                slot.lastResolvedVideoTime =
+                    nil
+
+                slot.displayCenter =
+                    0
+
+                buildVisibleLyrics(
+                    slot
                 )
 
 
@@ -518,14 +639,6 @@ local function loadLyricsFile(
                 parsePlain(text)
 
 
-            print(
-                "LYRICS: PLAIN parse",
-                slot.id,
-                "lines=",
-                #parsed
-            )
-
-
             if #parsed > 0 then
 
                 slot.lyrics =
@@ -540,14 +653,20 @@ local function loadLyricsFile(
                 slot.state =
                     "lyrics"
 
+                slot.hasTimedLyrics =
+                    false
 
-                print(
-                    "LYRICS: plain carregado",
-                    slot.id,
-                    "first=",
-                    slot.lyrics[1]
-                        and slot.lyrics[1].text
-                        or "NIL"
+                slot.lastResolvedLine =
+                    1
+
+                slot.lastResolvedVideoTime =
+                    nil
+
+                slot.displayCenter =
+                    1
+
+                buildVisibleLyrics(
+                    slot
                 )
 
 
@@ -563,12 +682,8 @@ local function loadLyricsFile(
             slot.loading =
                 false
 
-
-            print(
-                "LYRICS: arquivo não pôde ser interpretado",
-                slot.id,
-                filename
-            )
+            slot.hasTimedLyrics =
+                false
 
 
             callback(false)
@@ -578,13 +693,17 @@ end
 
 
 ------------------------------------------------------------
--- SALVA E DEPOIS LÊ
+-- SAVE AND THEN LOAD LYRICS
 ------------------------------------------------------------
 
 local function saveAndLoadLyrics(
     slot,
     text
 )
+
+    local sessionId =
+        slot.sessionId
+
 
     slot.loading =
         true
@@ -593,7 +712,10 @@ local function saveAndLoadLyrics(
         "searching"
 
 
-    render()
+    if not slot.seekReloading then
+
+        render()
+    end
 
 
     saveLyricsFile(
@@ -602,9 +724,19 @@ local function saveAndLoadLyrics(
 
         function(saved)
 
+            if slot.sessionId
+                ~= sessionId then
+
+                return
+            end
+
+
             if not saved then
 
                 slot.lyrics =
+                    {}
+
+                slot.visibleLyrics =
                     {}
 
                 slot.loaded =
@@ -616,23 +748,43 @@ local function saveAndLoadLyrics(
                 slot.state =
                     "not_found"
 
+                slot.hasTimedLyrics =
+                    false
+
+                slot.seekReloading =
+                    false
+
+                slot.seek =
+                    "não"
+
                 render()
 
                 return
             end
 
 
-            ------------------------------------------------
-            -- Depois de salvar, a fonte da exibição
-            -- passa a ser o arquivo.
-            ------------------------------------------------
-
             loadLyricsFile(
                 slot,
 
                 function(loaded)
 
+                    if slot.sessionId
+                        ~= sessionId then
+
+                        return
+                    end
+
+
                     if loaded then
+
+                        if slot.videoTime
+                            ~= nil then
+
+                            resolveCurrentLine(
+                                slot
+                            )
+                        end
+
 
                         render()
 
@@ -641,6 +793,9 @@ local function saveAndLoadLyrics(
 
 
                     slot.lyrics =
+                        {}
+
+                    slot.visibleLyrics =
                         {}
 
                     slot.loaded =
@@ -652,6 +807,14 @@ local function saveAndLoadLyrics(
                     slot.state =
                         "not_found"
 
+                    slot.hasTimedLyrics =
+                        false
+
+                    slot.seekReloading =
+                        false
+
+                    slot.seek =
+                        "não"
 
                     render()
                 end
@@ -662,7 +825,7 @@ end
 
 
 ------------------------------------------------------------
--- BUSCA FALLBACK
+-- FALLBACK SEARCH
 ------------------------------------------------------------
 
 local function searchLyricsFallback(
@@ -671,9 +834,15 @@ local function searchLyricsFallback(
     artist
 )
 
+    local sessionId =
+        slot.sessionId
+
+
     local query =
         noctalia.string.urlEncode(
-            title .. " " .. artist
+            title
+            .. " "
+            .. artist
         )
 
 
@@ -693,6 +862,13 @@ local function searchLyricsFallback(
 
         function(response)
 
+            if slot.sessionId
+                ~= sessionId then
+
+                return
+            end
+
+
             if not response
                 or not response.ok
                 or not response.body then
@@ -705,6 +881,12 @@ local function searchLyricsFallback(
 
                 slot.state =
                     "not_found"
+
+                slot.seekReloading =
+                    false
+
+                slot.seek =
+                    "não"
 
                 render()
 
@@ -731,6 +913,12 @@ local function searchLyricsFallback(
                 slot.state =
                     "not_found"
 
+                slot.seekReloading =
+                    false
+
+                slot.seek =
+                    "não"
+
                 render()
 
                 return
@@ -738,10 +926,12 @@ local function searchLyricsFallback(
 
 
             ------------------------------------------------
-            -- SINCRONIZADA
+            -- SYNCHRONIZED LYRICS
             ------------------------------------------------
 
-            for _, item in ipairs(results) do
+            for _, item in ipairs(
+                results
+            ) do
 
                 if item.syncedLyrics
                     and item.syncedLyrics ~= "" then
@@ -757,10 +947,12 @@ local function searchLyricsFallback(
 
 
             ------------------------------------------------
-            -- PLAIN
+            -- PLAIN LYRICS
             ------------------------------------------------
 
-            for _, item in ipairs(results) do
+            for _, item in ipairs(
+                results
+            ) do
 
                 if item.plainLyrics
                     and item.plainLyrics ~= "" then
@@ -784,6 +976,12 @@ local function searchLyricsFallback(
             slot.state =
                 "not_found"
 
+            slot.seekReloading =
+                false
+
+            slot.seek =
+                "não"
+
             render()
         end
     )
@@ -791,7 +989,7 @@ end
 
 
 ------------------------------------------------------------
--- BUSCA LRCLIB
+-- LRCLIB SEARCH
 ------------------------------------------------------------
 
 local function searchLyrics(
@@ -799,6 +997,10 @@ local function searchLyrics(
     title,
     artist
 )
+
+    local sessionId =
+        slot.sessionId
+
 
     local encodedTitle =
         noctalia.string.urlEncode(
@@ -833,6 +1035,13 @@ local function searchLyrics(
 
         function(response)
 
+            if slot.sessionId
+                ~= sessionId then
+
+                return
+            end
+
+
             if response
                 and response.ok
                 and response.body then
@@ -847,7 +1056,7 @@ local function searchLyrics(
                 if ok and data then
 
                     ------------------------------------------------
-                    -- SINCRONIZADA
+                    -- SYNCHRONIZED LYRICS
                     ------------------------------------------------
 
                     if data.syncedLyrics
@@ -863,7 +1072,7 @@ local function searchLyrics(
 
 
                     ------------------------------------------------
-                    -- PLAIN
+                    -- PLAIN LYRICS
                     ------------------------------------------------
 
                     if data.plainLyrics
@@ -880,10 +1089,6 @@ local function searchLyrics(
             end
 
 
-            ------------------------------------------------
-            -- FALLBACK
-            ------------------------------------------------
-
             searchLyricsFallback(
                 slot,
                 title,
@@ -895,18 +1100,16 @@ end
 
 
 ------------------------------------------------------------
--- ENCONTRA SLOT PARA UM PLAYER
+-- FIND SLOT FOR PLAYER
 ------------------------------------------------------------
 
 local function findSlotForPlayer(
     player
 )
 
-    ------------------------------------------------
-    -- Primeiro: player já conhecido.
-    ------------------------------------------------
-
-    for _, slot in ipairs(slots) do
+    for _, slot in ipairs(
+        slots
+    ) do
 
         if slot.player == player
             and player ~= "" then
@@ -916,11 +1119,9 @@ local function findSlotForPlayer(
     end
 
 
-    ------------------------------------------------
-    -- Segundo: slot vazio.
-    ------------------------------------------------
-
-    for _, slot in ipairs(slots) do
+    for _, slot in ipairs(
+        slots
+    ) do
 
         if slot.player == "" then
 
@@ -929,17 +1130,456 @@ local function findSlotForPlayer(
     end
 
 
-    ------------------------------------------------
-    -- Terceiro:
-    -- reutiliza o slot 1.
-    ------------------------------------------------
-
     return slots[1]
 end
 
 
 ------------------------------------------------------------
--- PROCESSA UM PLAYER MPRIS
+-- FULL RESTART
+--
+-- KEPT IN THE CODE.
+--
+-- THE NEW SEEK SYSTEM DOES NOT USE THIS FUNCTION.
+------------------------------------------------------------
+
+local function restartPluginFromScratch()
+
+    for _, slot in ipairs(
+        slots
+    ) do
+
+        slot.sessionId =
+            slot.sessionId + 1
+    end
+
+
+    clearAllSlots()
+
+
+    positionCache =
+        {}
+
+    positionCacheOrder =
+        {}
+
+
+    activeSlot =
+        1
+
+
+    local command =
+        "rm -f "
+        .. "\"$HOME/.cache/noctalia/lyrics/lyrics_1.lrc\" "
+        .. "\"$HOME/.cache/noctalia/lyrics/lyrics_2.lrc\""
+
+
+    noctalia.runAsync(
+        command,
+
+        function(result)
+
+            if result
+                and result.exitCode ~= 0 then
+
+                return
+            end
+
+
+            ensureLyricsFiles(
+                function(success)
+
+                    if not success then
+
+                        render()
+
+                        return
+                    end
+
+
+                    render()
+
+                    runPlayerctl()
+                end
+            )
+        end
+    )
+end
+
+
+------------------------------------------------------------
+-- QUICK PAUSE/PLAY TO FORCE AN MPRIS UPDATE
+------------------------------------------------------------
+
+local function triggerQuickPause(
+    slot
+)
+
+    if not slot then
+
+        return false
+    end
+
+
+    if not slot.player
+        or slot.player == "" then
+
+        return false
+    end
+
+
+    if slot.quickPauseCommandRunning then
+
+        return false
+    end
+
+
+    local quotedPlayer =
+        shellQuote(
+            slot.player
+        )
+
+
+    local command =
+        PLAYERCTL
+        .. " -p "
+        .. quotedPlayer
+        .. " pause"
+        .. " && "
+        .. "sleep "
+        .. string.format(
+            "%.3f",
+            SEEK_PAUSE_SECONDS
+        )
+        .. " && "
+        .. PLAYERCTL
+        .. " -p "
+        .. quotedPlayer
+        .. " play"
+
+
+    slot.quickPauseCommandRunning =
+        true
+
+
+    noctalia.runAsync(
+        command,
+
+        function(result)
+
+            slot.quickPauseCommandRunning =
+                false
+
+
+            if result
+                and result.exitCode == 0 then
+
+                return
+            end
+
+
+            ------------------------------------------------
+            -- Allow a future query to detect the seek again.
+            ------------------------------------------------
+
+            slot.quickPauseRecovery =
+                false
+
+            slot.seek =
+                "não"
+        end
+    )
+
+
+    return true
+end
+
+
+------------------------------------------------------------
+-- UPDATE MPRIS REFERENCE
+------------------------------------------------------------
+
+local function updateReferenceTime(
+    slot,
+    mprisPosition,
+    status
+)
+
+    if mprisPosition == nil then
+
+        return nil
+    end
+
+
+    ------------------------------------------------
+    -- RECOVERY AFTER SEEK
+    --
+    -- The old reference has already been discarded.
+    --
+    -- No position is accepted until a Playing state
+    -- is received again.
+    ------------------------------------------------
+
+    if slot.quickPauseRecovery then
+
+        ------------------------------------------------
+        -- THE PHYSICAL PAUSE WAS OBSERVED.
+        --
+        -- Do not use this position.
+        ------------------------------------------------
+
+        if status == "Paused" then
+
+            return nil
+        end
+
+
+        ------------------------------------------------
+        -- FIRST PLAYING STATE AFTER THE PAUSE.
+        --
+        -- THIS becomes the new reference.
+        ------------------------------------------------
+
+        if status == "Playing" then
+
+            slot.referenceTime =
+                mprisPosition
+
+            slot.videoTime =
+                mprisPosition
+
+            slot.position =
+                mprisPosition
+
+            slot.lastVideoTime =
+                mprisPosition
+
+            slot.seek =
+                "não"
+
+            slot.seekCandidateTime =
+                nil
+
+            slot.seekCandidateCount =
+                0
+
+            slot.lastResolvedVideoTime =
+                nil
+
+            slot.quickPauseRecovery =
+                false
+
+
+            return slot.referenceTime
+        end
+
+
+        ------------------------------------------------
+        -- ANY OTHER STATE.
+        ------------------------------------------------
+
+        return nil
+    end
+
+
+    ------------------------------------------------
+    -- NEW NORMAL SESSION
+    ------------------------------------------------
+
+    if slot.referenceTime == nil then
+
+        slot.referenceTime =
+            mprisPosition
+
+        slot.videoTime =
+            mprisPosition
+
+        slot.position =
+            mprisPosition
+
+        slot.lastVideoTime =
+            mprisPosition
+
+        slot.seek =
+            "não"
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+
+        return slot.referenceTime
+    end
+
+
+    ------------------------------------------------
+    -- NORMAL PAUSED STATE
+    --
+    -- DO NOT change the reference.
+    --
+    -- This prevents a potentially unreliable MPRIS
+    -- position while paused from destroying sync.
+    ------------------------------------------------
+
+    if status == "Paused" then
+
+        slot.seek =
+            "não"
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+
+        return slot.referenceTime
+    end
+
+
+    ------------------------------------------------
+    -- OLD RELOAD DEAD ZONE
+    --
+    -- Kept to preserve the previous behavior.
+    ------------------------------------------------
+
+    if slot.seekReloading then
+
+        return slot.referenceTime
+    end
+
+
+    ------------------------------------------------
+    -- DIFFERENCE FROM REFERENCE
+    ------------------------------------------------
+
+    local difference =
+        mprisPosition
+        - slot.referenceTime
+
+
+    local absoluteDifference =
+        math.abs(
+            difference
+        )
+
+
+    ------------------------------------------------
+    -- NORMAL PLAYING
+    ------------------------------------------------
+
+    if absoluteDifference
+        < SEEK_THRESHOLD then
+
+        slot.referenceTime =
+            mprisPosition
+
+        slot.videoTime =
+            mprisPosition
+
+        slot.position =
+            mprisPosition
+
+        slot.lastVideoTime =
+            mprisPosition
+
+        slot.seek =
+            "não"
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+        return slot.referenceTime
+    end
+
+
+    ------------------------------------------------
+    -- SEEK DETECTED
+    --
+    -- DO NOT restart the plugin.
+    -- DO NOT delete the lyrics.
+    -- DO NOT reload LRCLIB.
+    --
+    -- Only force:
+    --
+    -- Playing
+    --    ↓
+    -- Paused
+    --    ↓
+    -- Playing
+    --
+    -- and wait for a new MPRIS position.
+    ------------------------------------------------
+
+    ------------------------------------------------
+    -- DISCARD THE OLD REFERENCE.
+    ------------------------------------------------
+
+    slot.referenceTime =
+        nil
+
+    slot.videoTime =
+        nil
+
+    slot.position =
+        0
+
+    slot.lastVideoTime =
+        nil
+
+    slot.lastResolvedVideoTime =
+        nil
+
+    slot.seekCandidateTime =
+        nil
+
+    slot.seekCandidateCount =
+        0
+
+    slot.seek =
+        "sim"
+
+
+    ------------------------------------------------
+    -- ENTER RECOVERY MODE.
+    ------------------------------------------------
+
+    slot.quickPauseRecovery =
+        true
+
+
+    ------------------------------------------------
+    -- TRIGGER PAUSE → PLAY.
+    ------------------------------------------------
+
+    local triggered =
+        triggerQuickPause(
+            slot
+        )
+
+
+    if not triggered then
+
+        slot.quickPauseRecovery =
+            false
+
+        slot.seek =
+            "não"
+
+        return nil
+    end
+
+
+    return nil
+end
+
+
+------------------------------------------------------------
+-- PROCESS PLAYER
 ------------------------------------------------------------
 
 local function processPlayer(
@@ -984,7 +1624,7 @@ local function processPlayer(
 
 
     ------------------------------------------------
-    -- Atualiza identidade do slot.
+    -- IDENTITY
     ------------------------------------------------
 
     slot.player =
@@ -998,17 +1638,23 @@ local function processPlayer(
 
 
     ------------------------------------------------
-    -- NOVA MÚSICA
+    -- NEW SONG / NEW PLAYER
     ------------------------------------------------
 
     if lookupKey ~= previousLookupKey
         or previousPlayer ~= slot.player then
 
+        slot.sessionId =
+            slot.sessionId + 1
+
+
         slot.lastLookupKey =
             lookupKey
 
-
         slot.lyrics =
+            {}
+
+        slot.visibleLyrics =
             {}
 
         slot.loaded =
@@ -1020,16 +1666,49 @@ local function processPlayer(
         slot.state =
             "searching"
 
-
         slot.position =
-            positionCache[lookupKey]
+            mprisPosition
             or 0
 
+        slot.videoTime =
+            mprisPosition
 
-        ------------------------------------------------
-        -- Se a música é realmente nova,
-        -- procura a letra inteira.
-        ------------------------------------------------
+        slot.lastVideoTime =
+            mprisPosition
+
+        slot.referenceTime =
+            mprisPosition
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+        slot.lastResolvedLine =
+            0
+
+        slot.lastResolvedVideoTime =
+            nil
+
+        slot.displayCenter =
+            0
+
+        slot.hasTimedLyrics =
+            false
+
+        slot.seek =
+            "não"
+
+        slot.seekReloading =
+            false
+
+        slot.quickPauseRecovery =
+            false
+
+        slot.quickPauseCommandRunning =
+            false
+
 
         searchLyrics(
             slot,
@@ -1041,41 +1720,50 @@ local function processPlayer(
     else
 
         ------------------------------------------------
-        -- MESMA MÚSICA
+        -- SAME SONG
         ------------------------------------------------
 
-        if mprisPosition
-            and mprisPosition <= 3
-            and slot.position > 5 then
+        if mprisPosition ~= nil then
 
-            clearCachedPosition(
-                lookupKey
-            )
-
-
-            slot.position =
-                0
+            local result =
+                updateReferenceTime(
+                    slot,
+                    mprisPosition,
+                    status
+                )
 
 
-            slot.lyrics =
-                {}
+            ------------------------------------------------
+            -- PAUSE/PLAY RECOVERY
+            ------------------------------------------------
 
-            slot.loaded =
-                false
+            if result == nil
+                and slot.quickPauseRecovery then
 
-            slot.loading =
-                true
-
-            slot.state =
-                "searching"
-
-
-            searchLyrics(
-                slot,
-                slot.title,
-                slot.artist
-            )
+                return
+            end
         end
+    end
+
+
+    ------------------------------------------------
+    -- OLD DEAD ZONE
+    ------------------------------------------------
+
+    if slot.seekReloading then
+
+        return
+    end
+
+
+    ------------------------------------------------
+    -- CURRENT POSITION
+    ------------------------------------------------
+
+    if slot.referenceTime ~= nil then
+
+        slot.videoTime =
+            slot.referenceTime
     end
 
 
@@ -1097,9 +1785,7 @@ local function processPlayer(
 
 
     ------------------------------------------------
-    -- Escolhe o slot ativo.
-    --
-    -- Um player tocando tem prioridade.
+    -- ACTIVE SLOT
     ------------------------------------------------
 
     if status == "Playing" then
@@ -1114,15 +1800,102 @@ local function processPlayer(
     end
 
 
-    print(
-        "LYRICS DEBUG SLOT:",
-        slot.id,
-        status,
-        slot.title,
-        slot.artist,
-        slot.player,
-        slot.position
-    )
+    ------------------------------------------------
+    -- RESOLVE LYRICS
+    ------------------------------------------------
+
+    if slot.loaded
+        and slot.videoTime ~= nil then
+
+        resolveCurrentLine(
+            slot
+        )
+    end
+end
+
+
+------------------------------------------------------------
+-- CLEAR ALL SLOTS
+------------------------------------------------------------
+
+function clearAllSlots()
+
+    for _, slot in ipairs(
+        slots
+    ) do
+
+        slot.sessionId =
+            slot.sessionId + 1
+
+        slot.state =
+            "no_player"
+
+        slot.lyrics =
+            {}
+
+        slot.visibleLyrics =
+            {}
+
+        slot.loaded =
+            false
+
+        slot.loading =
+            false
+
+        slot.player =
+            ""
+
+        slot.title =
+            ""
+
+        slot.artist =
+            ""
+
+        slot.position =
+            0
+
+        slot.videoTime =
+            nil
+
+        slot.lastVideoTime =
+            nil
+
+        slot.referenceTime =
+            nil
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+        slot.lastResolvedLine =
+            0
+
+        slot.lastResolvedVideoTime =
+            nil
+
+        slot.displayCenter =
+            0
+
+        slot.hasTimedLyrics =
+            false
+
+        slot.seek =
+            "não"
+
+        slot.seekReloading =
+            false
+
+        slot.quickPauseRecovery =
+            false
+
+        slot.quickPauseCommandRunning =
+            false
+
+        slot.lastLookupKey =
+            ""
+    end
 end
 
 
@@ -1130,37 +1903,48 @@ end
 -- PLAYERCTL
 ------------------------------------------------------------
 
-local function runPlayerctl()
+function runPlayerctl()
+
+    if playerctlInFlight then
+
+        return
+    end
+
+
+    playerctlInFlight =
+        true
+
+
+    local command =
+        "timeout 3s "
+        .. PLAYERCTL
+        .. " -a metadata --format '{{status}}|{{title}}|{{artist}}|{{position}}|{{playerName}}'"
+
 
     noctalia.runAsync(
 
-        PLAYERCTL
-            .. " -a metadata --format '{{status}}|{{title}}|{{artist}}|{{position}}|{{playerName}}'",
+        command,
 
         function(result)
 
-            if not result
-                or result.exitCode ~= 0
+            playerctlInFlight =
+                false
+
+
+            if not result then
+
+                clearAllSlots()
+
+                render()
+
+                return
+            end
+
+
+            if result.exitCode ~= 0
                 or not result.stdout then
 
-                for _, slot in ipairs(slots) do
-
-                    slot.state =
-                        "no_player"
-
-                    slot.lyrics =
-                        {}
-
-                    slot.loaded =
-                        false
-
-                    slot.loading =
-                        false
-
-                    slot.player =
-                        ""
-                end
-
+                clearAllSlots()
 
                 render()
 
@@ -1177,24 +1961,7 @@ local function runPlayerctl()
 
             if output == "" then
 
-                for _, slot in ipairs(slots) do
-
-                    slot.state =
-                        "no_player"
-
-                    slot.lyrics =
-                        {}
-
-                    slot.loaded =
-                        false
-
-                    slot.loading =
-                        false
-
-                    slot.player =
-                        ""
-                end
-
+                clearAllSlots()
 
                 render()
 
@@ -1202,16 +1969,9 @@ local function runPlayerctl()
             end
 
 
-            ------------------------------------------------
-            -- Players encontrados nesta execução.
-            ------------------------------------------------
+            local seenPlayers =
+                {}
 
-            local seenPlayers = {}
-
-
-            ------------------------------------------------
-            -- PROCESSA TODAS AS LINHAS.
-            ------------------------------------------------
 
             for line in output:gmatch(
                 "[^\r\n]+"
@@ -1222,6 +1982,7 @@ local function runPlayerctl()
                     artist,
                     position,
                     player =
+
                     line:match(
                         "([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)"
                     )
@@ -1250,15 +2011,20 @@ local function runPlayerctl()
 
 
             ------------------------------------------------
-            -- Limpa slots de players que desapareceram.
+            -- CLEAR DISAPPEARED PLAYERS
             ------------------------------------------------
 
-            for _, slot in ipairs(slots) do
+            for _, slot in ipairs(
+                slots
+            ) do
 
                 if slot.player ~= ""
                     and not seenPlayers[
                         slot.player
                     ] then
+
+                    slot.sessionId =
+                        slot.sessionId + 1
 
                     slot.player =
                         ""
@@ -1272,6 +2038,36 @@ local function runPlayerctl()
                     slot.position =
                         0
 
+                    slot.videoTime =
+                        nil
+
+                    slot.lastVideoTime =
+                        nil
+
+                    slot.referenceTime =
+                        nil
+
+                    slot.seekCandidateTime =
+                        nil
+
+                    slot.seekCandidateCount =
+                        0
+
+                    slot.lastResolvedLine =
+                        0
+
+                    slot.lastResolvedVideoTime =
+                        nil
+
+                    slot.displayCenter =
+                        0
+
+                    slot.hasTimedLyrics =
+                        false
+
+                    slot.visibleLyrics =
+                        {}
+
                     slot.lyrics =
                         {}
 
@@ -1283,6 +2079,18 @@ local function runPlayerctl()
 
                     slot.state =
                         "no_player"
+
+                    slot.seek =
+                        "não"
+
+                    slot.seekReloading =
+                        false
+
+                    slot.quickPauseRecovery =
+                        false
+
+                    slot.quickPauseCommandRunning =
+                        false
 
                     slot.lastLookupKey =
                         ""
@@ -1299,58 +2107,554 @@ end
 
 
 ------------------------------------------------------------
--- LINHA ATUAL
+-- GET TEMPORAL VISUAL LINE
 ------------------------------------------------------------
 
-local function getCurrentLine(
-    slot
+local function getVisualLine(
+    slot,
+    visualIndex
 )
 
-    if #slot.lyrics == 0 then
-        return 1
+    if visualIndex < 1
+        or visualIndex > #slot.visibleLyrics then
+
+        return nil
     end
 
 
-    local current =
+    local entry =
+        slot.visibleLyrics[
+            visualIndex
+        ]
+
+
+    if not entry then
+        return nil
+    end
+
+
+    return entry.line
+end
+
+
+------------------------------------------------------------
+-- ABSOLUTE BINARY SEARCH
+------------------------------------------------------------
+
+local function resolveAbsolute(
+    slot,
+    syncPosition
+)
+
+    local lyrics =
+        slot.lyrics
+
+    local count =
+        #lyrics
+
+
+    if count == 0 then
+        return nil
+    end
+
+
+    local low =
         1
 
+    local high =
+        count
 
-    ------------------------------------------------
-    -- Calibração confirmada.
-    ------------------------------------------------
-
-    local LYRICS_SPEED =
-        1.01
+    local best =
+        0
 
 
-    local syncPosition =
-        (slot.position * LYRICS_SPEED)
-        + LYRICS_OFFSET
+    while low <= high do
 
+        local middle =
+            math.floor(
+                (low + high) / 2
+            )
 
-    for i = 1, #slot.lyrics do
 
         local line =
-            slot.lyrics[i]
+            lyrics[middle]
 
 
-        if line.time
-            and line.text
-            and line.text ~= ""
-            and syncPosition >= line.time then
+        if line.time ~= nil
+            and line.time <= syncPosition then
 
-            current =
-                i
+            best =
+                middle
 
-        elseif line.time
-            and syncPosition < line.time then
+            low =
+                middle + 1
 
-            break
+        else
+
+            high =
+                middle - 1
         end
     end
 
 
-    return current
+    if best == 0 then
+
+        return {
+            current = nil,
+            previous = nil,
+            next = lyrics[1],
+            index = 0,
+        }
+    end
+
+
+    local currentIndex =
+        best
+
+
+    while currentIndex >= 1 do
+
+        local line =
+            lyrics[currentIndex]
+
+
+        if line.time ~= nil
+            and line.time <= syncPosition
+            and line.text
+            and line.text:match("%S") then
+
+            break
+        end
+
+
+        currentIndex =
+            currentIndex - 1
+    end
+
+
+    if currentIndex < 1 then
+        currentIndex = 0
+    end
+
+
+    local nextLine =
+        nil
+
+    local nextSearchIndex =
+        best + 1
+
+
+    while nextSearchIndex <= count do
+
+        local line =
+            lyrics[nextSearchIndex]
+
+
+        if line.time ~= nil
+            and line.time > syncPosition then
+
+            nextLine =
+                line
+
+            break
+        end
+
+
+        nextSearchIndex =
+            nextSearchIndex + 1
+    end
+
+
+    local currentLine =
+        nil
+
+
+    if currentIndex > 0 then
+        currentLine =
+            lyrics[currentIndex]
+    end
+
+
+    local previousLine =
+        nil
+
+
+    if currentIndex > 1 then
+
+        local previousSearchIndex =
+            currentIndex - 1
+
+
+        while previousSearchIndex >= 1 do
+
+            local line =
+                lyrics[previousSearchIndex]
+
+
+            if line.time ~= nil
+                and line.text
+                and line.text:match("%S") then
+
+                previousLine =
+                    line
+
+                break
+            end
+
+
+            previousSearchIndex =
+                previousSearchIndex - 1
+        end
+    end
+
+
+    return {
+        current = currentLine,
+        previous = previousLine,
+        next = nextLine,
+        index = currentIndex,
+    }
+end
+
+
+------------------------------------------------------------
+-- GET VISUAL INDEX FROM LINE
+------------------------------------------------------------
+
+local function getVisualIndexFromLine(
+    line
+)
+
+    if not line then
+        return 0
+    end
+
+
+    return line.visualIndex
+        or 0
+end
+
+
+------------------------------------------------------------
+-- RESOLVE TEMPORAL LINE
+------------------------------------------------------------
+
+function resolveCurrentLine(
+    slot
+)
+
+    if not slot.loaded
+        or #slot.lyrics == 0 then
+
+        return
+    end
+
+
+    ------------------------------------------------
+    -- PLAIN LYRICS
+    ------------------------------------------------
+
+    if not slot.hasTimedLyrics then
+
+        slot.lastResolvedLine =
+            1
+
+        slot.displayCenter =
+            1
+
+        return
+    end
+
+
+    ------------------------------------------------
+    -- VIDEO TIME
+    ------------------------------------------------
+
+    local videoTime =
+        slot.videoTime
+
+
+    if videoTime == nil then
+        return
+    end
+
+
+    local syncPosition =
+        (videoTime * LYRICS_SPEED)
+        + LYRICS_OFFSET
+
+
+    ------------------------------------------------
+    -- DO NOT RESOLVE TWICE
+    ------------------------------------------------
+
+    if slot.lastResolvedVideoTime ~= nil
+        and math.abs(
+            syncPosition
+            - slot.lastResolvedVideoTime
+        ) < 0.001 then
+
+        return
+    end
+
+
+    local currentLine =
+        nil
+
+    local previousLine =
+        nil
+
+    local nextLine =
+        nil
+
+    local currentIndex =
+        slot.lastResolvedLine
+
+
+    local resolutionMode =
+        "INCREMENTAL"
+
+
+    ------------------------------------------------
+    -- FIRST RESOLUTION
+    ------------------------------------------------
+
+    if slot.displayCenter == 0
+        or slot.lastResolvedLine == 0 then
+
+        resolutionMode =
+            "FIRST RESOLUTION"
+
+
+        local resolved =
+            resolveAbsolute(
+                slot,
+                syncPosition
+            )
+
+
+        if resolved then
+
+            currentLine =
+                resolved.current
+
+            previousLine =
+                resolved.previous
+
+            nextLine =
+                resolved.next
+
+            currentIndex =
+                resolved.index
+        end
+
+
+    ------------------------------------------------
+    -- INCREMENTAL MODE
+    ------------------------------------------------
+
+    else
+
+        local currentVisualIndex =
+            slot.displayCenter
+
+
+        local currentVisualLine =
+            getVisualLine(
+                slot,
+                currentVisualIndex
+            )
+
+
+        if not currentVisualLine then
+
+            resolutionMode =
+                "ABSOLUTE RECOVERY"
+
+
+            local resolved =
+                resolveAbsolute(
+                    slot,
+                    syncPosition
+                )
+
+
+            if resolved then
+
+                currentLine =
+                    resolved.current
+
+                previousLine =
+                    resolved.previous
+
+                nextLine =
+                    resolved.next
+
+                currentIndex =
+                    resolved.index
+            end
+
+        else
+
+            currentLine =
+                currentVisualLine
+
+
+            ------------------------------------------------
+            -- MOVE FORWARD
+            ------------------------------------------------
+
+            while true do
+
+                local nextVisualIndex =
+                    currentVisualIndex + 1
+
+                local nextVisualLine =
+                    getVisualLine(
+                        slot,
+                        nextVisualIndex
+                    )
+
+
+                if not nextVisualLine
+                    or nextVisualLine.time == nil then
+
+                    break
+                end
+
+
+                if nextVisualLine.time
+                    <= syncPosition then
+
+                    currentVisualIndex =
+                        nextVisualIndex
+
+                    currentVisualLine =
+                        nextVisualLine
+
+                    currentLine =
+                        currentVisualLine
+
+                else
+
+                    nextLine =
+                        nextVisualLine
+
+                    break
+                end
+            end
+
+
+            ------------------------------------------------
+            -- MOVE BACKWARD
+            ------------------------------------------------
+
+            while currentLine
+                and currentLine.time
+                and syncPosition < currentLine.time do
+
+                local previousVisualIndex =
+                    currentVisualIndex - 1
+
+                local previousVisualLine =
+                    getVisualLine(
+                        slot,
+                        previousVisualIndex
+                    )
+
+
+                if not previousVisualLine
+                    or previousVisualLine.time == nil then
+
+                    break
+                end
+
+
+                currentVisualIndex =
+                    previousVisualIndex
+
+                currentLine =
+                    previousVisualLine
+            end
+
+
+            ------------------------------------------------
+            -- ORIGINAL INDEX
+            ------------------------------------------------
+
+            if currentLine then
+
+                currentIndex =
+                    currentLine.visualIndex
+                    and slot.visibleLyrics[
+                        currentLine.visualIndex
+                    ].originalIndex
+                    or currentIndex
+
+            else
+
+                currentIndex =
+                    0
+            end
+
+
+            ------------------------------------------------
+            -- PREVIOUS LINE
+            ------------------------------------------------
+
+            if currentVisualIndex > 1 then
+
+                previousLine =
+                    getVisualLine(
+                        slot,
+                        currentVisualIndex - 1
+                    )
+            end
+
+
+            ------------------------------------------------
+            -- NEXT LINE
+            ------------------------------------------------
+
+            if not nextLine then
+
+                nextLine =
+                    getVisualLine(
+                        slot,
+                        currentVisualIndex + 1
+                    )
+            end
+        end
+    end
+
+
+    ------------------------------------------------
+    -- UPDATE INDICES
+    ------------------------------------------------
+
+    if currentLine == nil then
+
+        slot.lastResolvedLine =
+            0
+
+        slot.displayCenter =
+            0
+
+    else
+
+        slot.lastResolvedLine =
+            currentIndex
+
+
+        slot.displayCenter =
+            getVisualIndexFromLine(
+                currentLine
+            )
+    end
+
+
+    slot.lastResolvedVideoTime =
+        syncPosition
 end
 
 
@@ -1360,20 +2664,13 @@ end
 
 function render()
 
-    local rows = {}
+    local rows =
+        {}
 
-
-    ------------------------------------------------
-    -- SLOT ATIVO
-    ------------------------------------------------
 
     local slot =
         slots[activeSlot]
 
-
-    ------------------------------------------------
-    -- CONFIGURAÇÕES
-    ------------------------------------------------
 
     local widthSetting =
         tonumber(
@@ -1384,7 +2681,7 @@ function render()
         or 700
 
 
-    local currentFontSetting =
+    local currentFontSize =
         tonumber(
             noctalia.getConfig(
                 "current_font_size"
@@ -1393,7 +2690,7 @@ function render()
         or 36
 
 
-    local secondaryFontSetting =
+    local secondaryFontSize =
         tonumber(
             noctalia.getConfig(
                 "secondary_font_size"
@@ -1402,22 +2699,28 @@ function render()
         or 27
 
 
-    local currentOpacitySetting =
-        tonumber(
-            noctalia.getConfig(
-                "current_opacity"
+    local currentOpacity =
+        (
+            tonumber(
+                noctalia.getConfig(
+                    "current_opacity"
+                )
             )
+            or 100
         )
-        or 100
+        / 100
 
 
-    local secondaryOpacitySetting =
-        tonumber(
-            noctalia.getConfig(
-                "secondary_opacity"
+    local secondaryOpacity =
+        (
+            tonumber(
+                noctalia.getConfig(
+                    "secondary_opacity"
+                )
             )
+            or 73
         )
-        or 73
+        / 100
 
 
     local linesAboveSetting =
@@ -1438,41 +2741,24 @@ function render()
         or 2
 
 
-    ------------------------------------------------
-    -- LARGURA
-    ------------------------------------------------
-
     local widgetWidth =
         300
-        + (widthSetting / 1000) * 900
+        + (widthSetting / 1000)
+        * 900
 
 
     ------------------------------------------------
-    -- FONTES
+    -- DEAD ZONE
     ------------------------------------------------
 
-    local currentFontSize =
-        currentFontSetting
+    if slot.seekReloading then
 
-
-    local secondaryFontSize =
-        secondaryFontSetting
+        return
+    end
 
 
     ------------------------------------------------
-    -- OPACIDADE
-    ------------------------------------------------
-
-    local currentOpacity =
-        currentOpacitySetting / 100
-
-
-    local secondaryOpacity =
-        secondaryOpacitySetting / 100
-
-
-    ------------------------------------------------
-    -- SEM PLAYER
+    -- NO PLAYER
     ------------------------------------------------
 
     if slot.state == "no_player" then
@@ -1502,7 +2788,7 @@ function render()
 
 
     ------------------------------------------------
-    -- BUSCANDO
+    -- SEARCHING
     ------------------------------------------------
 
     elseif slot.state == "searching"
@@ -1533,7 +2819,7 @@ function render()
 
 
     ------------------------------------------------
-    -- NÃO ENCONTRADA
+    -- NOT FOUND
     ------------------------------------------------
 
     elseif slot.state == "not_found" then
@@ -1563,79 +2849,59 @@ function render()
 
 
     ------------------------------------------------
-    -- PAUSADO
+    -- LYRICS / PAUSED
     ------------------------------------------------
 
-    elseif slot.state == "paused" then
+    elseif slot.state == "lyrics"
+        or slot.state == "paused" then
 
-        local current =
-            getCurrentLine(
+        local displayCenter =
+            slot.displayCenter
+
+
+        if displayCenter == 0
+            and slot.videoTime ~= nil
+            and slot.loaded then
+
+            resolveCurrentLine(
                 slot
             )
 
-
-        local line =
-            slot.lyrics[current]
-
-
-        table.insert(
-            rows,
-
-            ui.label({
-                text =
-                    line
-                    and line.text
-                    or "♪ Pausado",
-
-                fontSize =
-                    currentFontSize,
-
-                fontWeight =
-                    "bold",
-
-                color =
-                    noctalia.getConfig(
-                        "current_color"
-                    )
-                    or "primary",
-
-                maxLines = 1,
-
-                textAlign =
-                    "center",
-
-                opacity =
-                    currentOpacity,
-            })
-        )
+            displayCenter =
+                slot.displayCenter
+        end
 
 
-    ------------------------------------------------
-    -- LETRA
-    ------------------------------------------------
-
-    else
-
-        local current =
-            getCurrentLine(
-                slot
-            )
-
+        ------------------------------------------------
+        -- DIRECT RENDERING
+        ------------------------------------------------
 
         for offset =
             -linesAboveSetting,
             linesBelowSetting do
 
             local index =
-                current + offset
+                displayCenter
+                + offset
+
+
+            local visualEntry =
+                nil
+
+
+            if displayCenter > 0
+                and index >= 1
+                and index <= #slot.visibleLyrics then
+
+                visualEntry =
+                    slot.visibleLyrics[index]
+            end
 
 
             local line =
-                slot.lyrics[index]
-
-
-            local isCurrent =
-                offset == 0
+                visualEntry
+                and visualEntry.line
+                or nil
 
 
             local text =
@@ -1644,17 +2910,17 @@ function render()
 
             if line
                 and line.text
-                and line.text ~= "" then
+                and line.text:match("%S") then
 
                 text =
                     line.text
             end
 
 
-            local fontSize =
-                isCurrent
-                and currentFontSize
-                or secondaryFontSize
+            local isCurrent =
+                displayCenter > 0
+                and offset == 0
+                and line ~= nil
 
 
             table.insert(
@@ -1669,7 +2935,9 @@ function render()
                         text,
 
                     fontSize =
-                        fontSize,
+                        isCurrent
+                        and currentFontSize
+                        or secondaryFontSize,
 
                     fontWeight =
                         isCurrent
@@ -1738,47 +3006,16 @@ end
 
 ------------------------------------------------------------
 -- FRAME TICK
---
--- Cada slot possui sua própria posição.
 ------------------------------------------------------------
 
 function onFrameTick(deltaMs)
 
-    for _, slot in ipairs(slots) do
-
-        if slot.player ~= ""
-            and slot.state ~= "no_player"
-            and slot.loaded then
-
-            ------------------------------------------------
-            -- Só avança se estiver tocando.
-            ------------------------------------------------
-
-            if slot.state == "lyrics" then
-
-                slot.position =
-                    slot.position
-                    + (deltaMs / 1000)
-
-
-                cachePosition(
-                    slot.artist
-                    .. "|"
-                    .. slot.title,
-
-                    slot.position
-                )
-            end
-        end
-    end
-
-
-    render()
+    return
 end
 
 
 ------------------------------------------------------------
--- FRAME TICK
+-- ENABLE FRAME TICK
 ------------------------------------------------------------
 
 desktopWidget.setNeedsFrameTick(
@@ -1787,7 +3024,7 @@ desktopWidget.setNeedsFrameTick(
 
 
 ------------------------------------------------------------
--- ATUALIZAÇÃO MPRIS
+-- UPDATE INTERVAL
 ------------------------------------------------------------
 
 noctalia.setUpdateInterval(
@@ -1802,10 +3039,7 @@ end
 
 
 ------------------------------------------------------------
--- INICIALIZAÇÃO
---
--- Primeiro garante que os arquivos existem.
--- Só depois começa a consultar o MPRIS.
+-- INITIALIZATION
 ------------------------------------------------------------
 
 local function initialize()
@@ -1815,19 +3049,10 @@ local function initialize()
 
             if not success then
 
-                print(
-                    "LYRICS: inicialização dos arquivos falhou"
-                )
-
                 render()
 
                 return
             end
-
-
-            print(
-                "LYRICS: inicialização concluída"
-            )
 
 
             render()
@@ -1839,10 +3064,9 @@ end
 
 
 ------------------------------------------------------------
--- INÍCIO
+-- START
 ------------------------------------------------------------
 
 render()
 
 initialize()
-
