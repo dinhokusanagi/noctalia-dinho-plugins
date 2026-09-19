@@ -28,7 +28,20 @@ local slots = {
         title = "",
         artist = "",
 
+        ------------------------------------------------
+        -- OFFICIAL MPRIS POSITION
+        ------------------------------------------------
+
         position = 0,
+
+        ------------------------------------------------
+        -- POSITION USED BY THE LYRIC RENDERER
+        --
+        -- This is corrected by MPRIS queries and
+        -- progresses continuously through onFrameTick().
+        ------------------------------------------------
+
+        displayPosition = nil,
 
         videoTime = nil,
         lastVideoTime = nil,
@@ -94,6 +107,8 @@ local slots = {
 
         position = 0,
 
+        displayPosition = nil,
+
         videoTime = nil,
         lastVideoTime = nil,
 
@@ -150,7 +165,6 @@ local playerctlInFlight = false
 ------------------------------------------------------------
 
 local LYRICS_OFFSET = 0
-local LYRICS_SPEED = 1.01
 
 
 ------------------------------------------------------------
@@ -158,6 +172,17 @@ local LYRICS_SPEED = 1.01
 ------------------------------------------------------------
 
 local SEEK_THRESHOLD = 3.0
+
+------------------------------------------------------------
+-- MPRIS CLOCK CORRECTION
+--
+-- Pequenas diferenças entre MPRIS e o relógio local
+-- NÃO devem reposicionar a letra.
+--
+-- O relógio local continua andando pelo onFrameTick().
+------------------------------------------------------------
+
+local CLOCK_CORRECTION_THRESHOLD = 1.0
 
 
 ------------------------------------------------------------
@@ -1344,10 +1369,13 @@ local function updateReferenceTime(
             slot.referenceTime =
                 mprisPosition
 
-            slot.videoTime =
+            slot.position =
                 mprisPosition
 
-            slot.position =
+            slot.displayPosition =
+                mprisPosition
+
+            slot.videoTime =
                 mprisPosition
 
             slot.lastVideoTime =
@@ -1390,10 +1418,13 @@ local function updateReferenceTime(
         slot.referenceTime =
             mprisPosition
 
-        slot.videoTime =
+        slot.position =
             mprisPosition
 
-        slot.position =
+        slot.displayPosition =
+            mprisPosition
+
+        slot.videoTime =
             mprisPosition
 
         slot.lastVideoTime =
@@ -1423,6 +1454,9 @@ local function updateReferenceTime(
     ------------------------------------------------
 
     if status == "Paused" then
+
+        slot.position =
+            mprisPosition
 
         slot.seek =
             "não"
@@ -1466,35 +1500,65 @@ local function updateReferenceTime(
 
 
     ------------------------------------------------
-    -- NORMAL PLAYING
+-- NORMAL PLAYING
+------------------------------------------------
+
+if absoluteDifference
+    < SEEK_THRESHOLD then
+
+    ------------------------------------------------
+    -- MPRIS remains the external reference.
+    ------------------------------------------------
+
+    slot.position =
+        mprisPosition
+
+    ------------------------------------------------
+    -- IMPORTANT:
+    --
+    -- Do NOT continuously replace displayPosition.
+    --
+    -- The display clock is already advancing through
+    -- onFrameTick().
+    --
+    -- Small MPRIS fluctuations are ignored so the
+    -- lyric cannot jump backward/forward every query.
     ------------------------------------------------
 
     if absoluteDifference
-        < SEEK_THRESHOLD then
+        >= CLOCK_CORRECTION_THRESHOLD then
 
-        slot.referenceTime =
+        slot.displayPosition =
             mprisPosition
 
         slot.videoTime =
             mprisPosition
 
-        slot.position =
-            mprisPosition
-
         slot.lastVideoTime =
             mprisPosition
 
-        slot.seek =
-            "não"
-
-        slot.seekCandidateTime =
-            nil
-
-        slot.seekCandidateCount =
-            0
-
-        return slot.referenceTime
     end
+
+    ------------------------------------------------
+    -- Reference follows the external player position.
+    --
+    -- This is used only for detecting a real seek.
+    ------------------------------------------------
+
+    slot.referenceTime =
+        mprisPosition
+
+    slot.seek =
+        "não"
+
+    slot.seekCandidateTime =
+        nil
+
+    slot.seekCandidateCount =
+        0
+
+    return slot.referenceTime
+end
 
 
     ------------------------------------------------
@@ -1527,6 +1591,9 @@ local function updateReferenceTime(
 
     slot.position =
         0
+
+    slot.displayPosition =
+        nil
 
     slot.lastVideoTime =
         nil
@@ -1670,6 +1737,9 @@ local function processPlayer(
             mprisPosition
             or 0
 
+        slot.displayPosition =
+            mprisPosition
+
         slot.videoTime =
             mprisPosition
 
@@ -1758,12 +1828,14 @@ local function processPlayer(
 
     ------------------------------------------------
     -- CURRENT POSITION
+    --
+    -- videoTime follows the independent display clock.
     ------------------------------------------------
 
-    if slot.referenceTime ~= nil then
+    if slot.displayPosition ~= nil then
 
         slot.videoTime =
-            slot.referenceTime
+            slot.displayPosition
     end
 
 
@@ -1853,6 +1925,9 @@ function clearAllSlots()
 
         slot.position =
             0
+
+        slot.displayPosition =
+            nil
 
         slot.videoTime =
             nil
@@ -2037,6 +2112,9 @@ function runPlayerctl()
 
                     slot.position =
                         0
+
+                    slot.displayPosition =
+                        nil
 
                     slot.videoTime =
                         nil
@@ -2379,8 +2457,15 @@ function resolveCurrentLine(
     end
 
 
+    ------------------------------------------------
+    -- LRC POSITION
+    --
+    -- displayPosition is already the continuously
+    -- progressing player clock.
+    ------------------------------------------------
+
     local syncPosition =
-        (videoTime * LYRICS_SPEED)
+        videoTime
         + LYRICS_OFFSET
 
 
@@ -3006,11 +3091,81 @@ end
 
 ------------------------------------------------------------
 -- FRAME TICK
+--
+-- MPRIS is the authoritative clock correction.
+-- displayPosition is the continuously progressing clock.
+--
+-- We do NOT advance the clock while paused or while
+-- recovering from a seek.
 ------------------------------------------------------------
 
 function onFrameTick(deltaMs)
 
-    return
+    local slot =
+        slots[activeSlot]
+
+
+    if not slot then
+        return
+    end
+
+
+    if slot.quickPauseRecovery then
+        return
+    end
+
+
+    if slot.state ~= "lyrics"
+        and slot.state ~= "paused" then
+
+        return
+    end
+
+
+    if slot.displayPosition == nil then
+        return
+    end
+
+
+    ------------------------------------------------
+    -- Only Playing advances the display clock.
+    ------------------------------------------------
+
+    if slot.state == "lyrics" then
+
+        local deltaSeconds =
+            tonumber(deltaMs or 0)
+            / 1000
+
+
+        if deltaSeconds > 0
+            and deltaSeconds < 1 then
+
+            slot.displayPosition =
+                slot.displayPosition
+                + deltaSeconds
+
+
+            slot.videoTime =
+                slot.displayPosition
+
+
+            ------------------------------------------------
+            -- Resolve directly from the local LRC.
+            --
+            -- No playerctl query is needed for every frame.
+            ------------------------------------------------
+
+            if slot.loaded then
+
+                resolveCurrentLine(
+                    slot
+                )
+
+                render()
+            end
+        end
+    end
 end
 
 

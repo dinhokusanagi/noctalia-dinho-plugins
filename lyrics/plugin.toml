@@ -1,6 +1,6 @@
 id = "dinho/lyrics"
-name = "Lyrics"
-version = "2.0.0"
+name = "Lyrics Desktop"
+version = "2.0.1"
 plugin_api = 23
 author = "dinho"
 license = "MIT"
