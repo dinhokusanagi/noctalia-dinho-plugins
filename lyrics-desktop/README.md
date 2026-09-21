@@ -36,7 +36,7 @@ The plugin expects `playerctl` at:
 
 | Field      | Value                    |
 | ---------- | ------------------------ |
-| ID         | `dinho/lyrics`           |
+| ID         | `dinho/lyrics-desktop` |
 | Name       | `Lyrics Desktop`         |
 | Entry      | Desktop widget: `lyrics` |
 | Dependency | `playerctl`              |
