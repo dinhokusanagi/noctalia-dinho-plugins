@@ -5,7 +5,7 @@ plugin_api = 23
 author = "dinho"
 license = "MIT"
 dependencies = ["playerctl"]
-tags = ["desktop", "music"]
+tags = ["lyrics", "mpris", "desktop", "music"]
 icon = "music-note"
 description = "Synchronized lyrics desktop widget using MPRIS."
 

@@ -1,4 +1,4 @@
-# Lyrics Desktop
+# Lyrics Deskto# Lyrics Desktop
 
 Lyrics Desktop is a Noctalia desktop widget that displays synchronized song lyrics using MPRIS media players.
 
@@ -26,17 +26,17 @@ It automatically detects currently playing media through `playerctl`, retrieves 
 * An MPRIS-compatible media player.
 * Internet access when lyrics are not already present in the local cache.
 
-The plugin expects `playerctl` at:
+The plugin expects `playerctl` to be available in the system `PATH`:
 
 ```text
-/run/current-system/sw/bin/playerctl
+playerctl
 ```
 
 ## Plugin
 
 | Field      | Value                    |
 | ---------- | ------------------------ |
-| ID         | `dinho/lyrics-desktop` |
+| ID         | `dinho/lyrics-desktop`   |
 | Name       | `Lyrics Desktop`         |
 | Entry      | Desktop widget: `lyrics` |
 | Dependency | `playerctl`              |
@@ -218,4 +218,3 @@ No user credentials or authentication tokens are required. The plugin does not u
 ## License
 
 MIT
-, and rejected-type targets).

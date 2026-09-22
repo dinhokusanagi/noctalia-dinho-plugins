@@ -1,4 +1,4 @@
-local PLAYERCTL = "/run/current-system/sw/bin/playerctl"
+local PLAYERCTL = "playerctl"
 
 
 ------------------------------------------------------------
