@@ -1,0 +1,41 @@
+{
+  "title": "Letras na Área de Trabalho",
+  "settings": {
+    "current_color": {
+      "label": "Cor Primária",
+      "description": "Cor da letra atual"
+    },
+    "secondary_color": {
+      "label": "Cor Secundária",
+      "description": "Cor das letras ao redor"
+    },
+    "width": {
+      "label": "Largura",
+      "description": "Largura do widget de letras"
+    },
+    "current_font_size": {
+      "label": "Tamanho da Fonte Primária",
+      "description": "Tamanho da fonte da letra atual"
+    },
+    "secondary_font_size": {
+      "label": "Tamanho da Fonte Secundária",
+      "description": "Tamanho da fonte das letras ao redor"
+    },
+    "current_opacity": {
+      "label": "Opacidade Primária",
+      "description": "Opacidade da letra atual"
+    },
+    "secondary_opacity": {
+      "label": "Opacidade Secundária",
+      "description": "Opacidade das letras ao redor"
+    },
+    "lines_above": {
+      "label": "Linhas Acima",
+      "description": "Número de linhas exibidas acima da linha atual"
+    },
+    "lines_below": {
+      "label": "Linhas Abaixo",
+      "description": "Número de linhas exibidas abaixo da linha atual"
+    }
+  }
+}
