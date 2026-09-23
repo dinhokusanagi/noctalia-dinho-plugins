@@ -27,7 +27,7 @@ local slots = {
         player = "",
         title = "",
         artist = "",
-	isLive = false,
+        isLive = false,
 
         ------------------------------------------------
         -- OFFICIAL MPRIS POSITION
@@ -67,7 +67,7 @@ local slots = {
 
         state = "no_player",
 
-        seek = "não",
+        seek = "no",
 
         ------------------------------------------------
         -- DEAD ZONE DURING RELOAD.
@@ -133,7 +133,7 @@ local slots = {
 
         state = "no_player",
 
-        seek = "não",
+        seek = "no",
 
         seekReloading = false,
 
@@ -177,10 +177,10 @@ local SEEK_THRESHOLD = 3.0
 ------------------------------------------------------------
 -- MPRIS CLOCK CORRECTION
 --
--- Pequenas diferenças entre MPRIS e o relógio local
--- NÃO devem reposicionar a letra.
+-- Small differences between MPRIS and the local clock
+-- must NOT reposition the lyrics.
 --
--- O relógio local continua andando pelo onFrameTick().
+-- The local clock continues advancing through onFrameTick().
 ------------------------------------------------------------
 
 local CLOCK_CORRECTION_THRESHOLD = 1.0
@@ -781,7 +781,7 @@ local function saveAndLoadLyrics(
                     false
 
                 slot.seek =
-                    "não"
+                    "no"
 
                 render()
 
@@ -840,7 +840,7 @@ local function saveAndLoadLyrics(
                         false
 
                     slot.seek =
-                        "não"
+                        "no"
 
                     render()
                 end
@@ -912,7 +912,7 @@ local function searchLyricsFallback(
                     false
 
                 slot.seek =
-                    "não"
+                    "no"
 
                 render()
 
@@ -943,7 +943,7 @@ local function searchLyricsFallback(
                     false
 
                 slot.seek =
-                    "não"
+                    "no"
 
                 render()
 
@@ -1006,7 +1006,7 @@ local function searchLyricsFallback(
                 false
 
             slot.seek =
-                "não"
+                "no"
 
             render()
         end
@@ -1311,7 +1311,7 @@ local function triggerQuickPause(
                 false
 
             slot.seek =
-                "não"
+                "no"
         end
     )
 
@@ -1383,7 +1383,7 @@ local function updateReferenceTime(
                 mprisPosition
 
             slot.seek =
-                "não"
+                "no"
 
             slot.seekCandidateTime =
                 nil
@@ -1432,7 +1432,7 @@ local function updateReferenceTime(
             mprisPosition
 
         slot.seek =
-            "não"
+            "no"
 
         slot.seekCandidateTime =
             nil
@@ -1460,7 +1460,7 @@ local function updateReferenceTime(
             mprisPosition
 
         slot.seek =
-            "não"
+            "no"
 
         slot.seekCandidateTime =
             nil
@@ -1501,65 +1501,65 @@ local function updateReferenceTime(
 
 
     ------------------------------------------------
--- NORMAL PLAYING
-------------------------------------------------
-
-if absoluteDifference
-    < SEEK_THRESHOLD then
-
-    ------------------------------------------------
-    -- MPRIS remains the external reference.
-    ------------------------------------------------
-
-    slot.position =
-        mprisPosition
-
-    ------------------------------------------------
-    -- IMPORTANT:
-    --
-    -- Do NOT continuously replace displayPosition.
-    --
-    -- The display clock is already advancing through
-    -- onFrameTick().
-    --
-    -- Small MPRIS fluctuations are ignored so the
-    -- lyric cannot jump backward/forward every query.
+    -- NORMAL PLAYING
     ------------------------------------------------
 
     if absoluteDifference
-        >= CLOCK_CORRECTION_THRESHOLD then
+        < SEEK_THRESHOLD then
 
-        slot.displayPosition =
+        ------------------------------------------------
+        -- MPRIS remains the external reference.
+        ------------------------------------------------
+
+        slot.position =
             mprisPosition
 
-        slot.videoTime =
+        ------------------------------------------------
+        -- IMPORTANT:
+        --
+        -- Do NOT continuously replace displayPosition.
+        --
+        -- The display clock is already advancing through
+        -- onFrameTick().
+        --
+        -- Small MPRIS fluctuations are ignored so the
+        -- lyric cannot jump backward/forward every query.
+        ------------------------------------------------
+
+        if absoluteDifference
+            >= CLOCK_CORRECTION_THRESHOLD then
+
+            slot.displayPosition =
+                mprisPosition
+
+            slot.videoTime =
+                mprisPosition
+
+            slot.lastVideoTime =
+                mprisPosition
+
+        end
+
+        ------------------------------------------------
+        -- Reference follows the external player position.
+        --
+        -- This is used only for detecting a real seek.
+        ------------------------------------------------
+
+        slot.referenceTime =
             mprisPosition
 
-        slot.lastVideoTime =
-            mprisPosition
+        slot.seek =
+            "no"
 
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+        return slot.referenceTime
     end
-
-    ------------------------------------------------
-    -- Reference follows the external player position.
-    --
-    -- This is used only for detecting a real seek.
-    ------------------------------------------------
-
-    slot.referenceTime =
-        mprisPosition
-
-    slot.seek =
-        "não"
-
-    slot.seekCandidateTime =
-        nil
-
-    slot.seekCandidateCount =
-        0
-
-    return slot.referenceTime
-end
 
 
     ------------------------------------------------
@@ -1609,7 +1609,7 @@ end
         0
 
     slot.seek =
-        "sim"
+        "yes"
 
 
     ------------------------------------------------
@@ -1636,7 +1636,7 @@ end
             false
 
         slot.seek =
-            "não"
+            "no"
 
         return nil
     end
@@ -1692,11 +1692,11 @@ local function processPlayer(
         )
 
     local mprisLength =
-    normalizePosition(
-        length
-    )
+        normalizePosition(
+            length
+        )
 
-    
+
     ------------------------------------------------
     -- IDENTITY
     ------------------------------------------------
@@ -1709,8 +1709,6 @@ local function processPlayer(
 
     slot.artist =
         artist or ""
-
-
 
 
     ------------------------------------------------
@@ -1781,7 +1779,7 @@ local function processPlayer(
             false
 
         slot.seek =
-            "não"
+            "no"
 
         slot.seekReloading =
             false
@@ -1863,7 +1861,7 @@ local function processPlayer(
             false
 
         slot.seek =
-            "não"
+            "no"
 
         slot.seekReloading =
             false
@@ -2052,7 +2050,7 @@ function clearAllSlots()
             false
 
         slot.seek =
-            "não"
+            "no"
 
         slot.seekReloading =
             false
@@ -2151,12 +2149,12 @@ function runPlayerctl()
                     title,
                     artist,
                     position,
-		    length,
+                    length,
                     player =
 
                     line:match(
-                         "([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)"
-                    )                           
+                        "([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)"
+                    )
 
 
                 if title
@@ -2175,7 +2173,7 @@ function runPlayerctl()
                         title,
                         artist,
                         position,
-			length,
+                        length,
                         player
                     )
                 end
@@ -2256,7 +2254,7 @@ function runPlayerctl()
                         "no_player"
 
                     slot.seek =
-                        "não"
+                        "no"
 
                     slot.seekReloading =
                         false
@@ -2269,8 +2267,8 @@ function runPlayerctl()
 
                     slot.lastLookupKey =
                         ""
-		   
-		    slot.isLive =
+
+                    slot.isLive =
                         false
                 end
             end
@@ -2631,6 +2629,30 @@ function resolveCurrentLine(
 
             currentIndex =
                 resolved.index
+
+            ------------------------------------------------
+            -- BEFORE THE FIRST LYRIC
+            --
+            -- The lyrics are already loaded, so display
+            -- the first line immediately and keep it on
+            -- screen until its timestamp is reached.
+            ------------------------------------------------
+
+            if currentLine == nil
+                and resolved.next ~= nil then
+
+                currentLine =
+                    resolved.next
+
+                currentIndex =
+                    1
+
+                previousLine =
+                    nil
+
+                nextLine =
+                    slot.lyrics[2]
+            end
         end
 
 
@@ -3009,20 +3031,20 @@ function render()
 
     if slot.state == "live" then
 
-    desktopWidget.render(
-        ui.column(
-            {
-                width = widgetWidth,
-                gap = 10,
-                align = "center",
-                minHeight = 0,
-            },
-            {}
+        desktopWidget.render(
+            ui.column(
+                {
+                    width = widgetWidth,
+                    gap = 10,
+                    align = "center",
+                    minHeight = 0,
+                },
+                {}
+            )
         )
-    )
 
-    return
-end
+        return
+    end
 
 
     ------------------------------------------------
@@ -3031,27 +3053,27 @@ end
 
     elseif slot.state == "live" then
 
-    desktopWidget.render(
-        ui.column(
-            {
-                width =
-                    widgetWidth,
+        desktopWidget.render(
+            ui.column(
+                {
+                    width =
+                        widgetWidth,
 
-                gap =
-                    10,
+                    gap =
+                        10,
 
-                align =
-                    "center",
+                    align =
+                        "center",
 
-                minHeight =
-                    0,
-            },
+                    minHeight =
+                        0,
+                },
 
-            {}
+                {}
+            )
         )
-    )
 
-    return
+        return
 
 
     ------------------------------------------------
