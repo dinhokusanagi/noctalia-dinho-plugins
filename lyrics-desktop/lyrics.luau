@@ -105,6 +105,7 @@ local slots = {
         player = "",
         title = "",
         artist = "",
+        isLive = false,
 
         position = 0,
 
@@ -173,6 +174,7 @@ local LYRICS_OFFSET = 0
 ------------------------------------------------------------
 
 local SEEK_THRESHOLD = 3.0
+
 
 ------------------------------------------------------------
 -- MPRIS CLOCK CORRECTION
@@ -2063,6 +2065,9 @@ function clearAllSlots()
 
         slot.lastLookupKey =
             ""
+
+        slot.isLive =
+            false
     end
 end
 
@@ -2446,6 +2451,7 @@ local function resolveAbsolute(
 
 
     if currentIndex > 0 then
+
         currentLine =
             lyrics[currentIndex]
     end
@@ -3029,29 +3035,36 @@ function render()
     -- LIVE STREAM
     ------------------------------------------------
 
-    if slot.state == "live" then
+    elseif slot.state == "live" then
 
         desktopWidget.render(
             ui.column(
                 {
-                    width = widgetWidth,
-                    gap = 10,
-                    align = "center",
-                    minHeight = 0,
+                    width =
+                        widgetWidth,
+
+                    gap =
+                        10,
+
+                    align =
+                        "center",
+
+                    minHeight =
+                        0,
                 },
+
                 {}
             )
         )
 
         return
-    end
 
 
     ------------------------------------------------
     -- NOT FOUND
     ------------------------------------------------
 
-    elseif slot.state == "live" then
+    elseif slot.state == "not_found" then
 
         desktopWidget.render(
             ui.column(
