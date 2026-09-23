@@ -9,14 +9,14 @@
 # On every row, updated_at dates the commit that first shipped that row's version.
 
 [[plugin]]
-id = "dinho/lyrics"
-name = "Lyrics"
-version = "1.0.0"
-updated_at = 1789569699
-added_at = 1789569699
+id = "dinho/lyrics-desktop"
+name = "Lyrics Desktop"
+version = "2.0.1"
+updated_at = 1789996443
+added_at = 1789996443
 author = "dinho"
 license = "MIT"
 icon = "music-note"
 description = "Synchronized lyrics desktop widget using MPRIS."
 plugin_api = 23
-tags = ["lyrics", "mpris", "desktop"]
+tags = ["lyrics", "mpris", "desktop", "music"]

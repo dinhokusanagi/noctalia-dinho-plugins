@@ -27,6 +27,7 @@ local slots = {
         player = "",
         title = "",
         artist = "",
+	isLive = false,
 
         ------------------------------------------------
         -- OFFICIAL MPRIS POSITION
@@ -1654,6 +1655,7 @@ local function processPlayer(
     title,
     artist,
     position,
+    length,
     player
 )
 
@@ -1689,7 +1691,12 @@ local function processPlayer(
             position
         )
 
+    local mprisLength =
+    normalizePosition(
+        length
+    )
 
+    
     ------------------------------------------------
     -- IDENTITY
     ------------------------------------------------
@@ -1702,6 +1709,94 @@ local function processPlayer(
 
     slot.artist =
         artist or ""
+
+
+
+
+    ------------------------------------------------
+    -- LIVE STREAM
+    --
+    -- Live streams normally have no valid MPRIS
+    -- duration. Do not search or display lyrics.
+    ------------------------------------------------
+
+    if isLive then
+
+        slot.isLive =
+            true
+
+        slot.sessionId =
+            slot.sessionId + 1
+
+        slot.lastLookupKey =
+            lookupKey
+
+        slot.lyrics =
+            {}
+
+        slot.visibleLyrics =
+            {}
+
+        slot.loaded =
+            false
+
+        slot.loading =
+            false
+
+        slot.state =
+            "live"
+
+        slot.position =
+            mprisPosition
+            or 0
+
+        slot.displayPosition =
+            mprisPosition
+
+        slot.videoTime =
+            mprisPosition
+
+        slot.lastVideoTime =
+            mprisPosition
+
+        slot.referenceTime =
+            mprisPosition
+
+        slot.seekCandidateTime =
+            nil
+
+        slot.seekCandidateCount =
+            0
+
+        slot.lastResolvedLine =
+            0
+
+        slot.lastResolvedVideoTime =
+            nil
+
+        slot.displayCenter =
+            0
+
+        slot.hasTimedLyrics =
+            false
+
+        slot.seek =
+            "não"
+
+        slot.seekReloading =
+            false
+
+        slot.quickPauseRecovery =
+            false
+
+        slot.quickPauseCommandRunning =
+            false
+
+        return
+    end
+
+    slot.isLive =
+        false
 
 
     ------------------------------------------------
@@ -1993,7 +2088,7 @@ function runPlayerctl()
     local command =
         "timeout 3s "
         .. PLAYERCTL
-        .. " -a metadata --format '{{status}}|{{title}}|{{artist}}|{{position}}|{{playerName}}'"
+        .. " -a metadata --format '{{status}}|{{title}}|{{artist}}|{{position}}|{{mpris:length}}|{{playerName}}'"
 
 
     noctalia.runAsync(
@@ -2056,11 +2151,12 @@ function runPlayerctl()
                     title,
                     artist,
                     position,
+		    length,
                     player =
 
                     line:match(
-                        "([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)"
-                    )
+                         "([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)"
+                    )                           
 
 
                 if title
@@ -2079,6 +2175,7 @@ function runPlayerctl()
                         title,
                         artist,
                         position,
+			length,
                         player
                     )
                 end
@@ -2172,6 +2269,9 @@ function runPlayerctl()
 
                     slot.lastLookupKey =
                         ""
+		   
+		    slot.isLive =
+                        false
                 end
             end
 
@@ -2853,7 +2953,7 @@ function render()
 
             ui.label({
                 text =
-                    "♪ Nenhum player",
+                    "♪ No Player",
 
                 fontSize =
                     secondaryFontSize,
@@ -2884,7 +2984,7 @@ function render()
 
             ui.label({
                 text =
-                    "♪ Buscando letra...",
+                    "♪ Search lyric...",
 
                 fontSize =
                     secondaryFontSize,
@@ -2901,36 +3001,57 @@ function render()
                     secondaryOpacity,
             })
         )
+
+
+    ------------------------------------------------
+    -- LIVE STREAM
+    ------------------------------------------------
+
+    if slot.state == "live" then
+
+    desktopWidget.render(
+        ui.column(
+            {
+                width = widgetWidth,
+                gap = 10,
+                align = "center",
+                minHeight = 0,
+            },
+            {}
+        )
+    )
+
+    return
+end
 
 
     ------------------------------------------------
     -- NOT FOUND
     ------------------------------------------------
 
-    elseif slot.state == "not_found" then
+    elseif slot.state == "live" then
 
-        table.insert(
-            rows,
+    desktopWidget.render(
+        ui.column(
+            {
+                width =
+                    widgetWidth,
 
-            ui.label({
-                text =
-                    "♪ Sem letra disponível",
+                gap =
+                    10,
 
-                fontSize =
-                    secondaryFontSize,
-
-                color =
-                    "secondary",
-
-                maxLines = 1,
-
-                textAlign =
+                align =
                     "center",
 
-                opacity =
-                    secondaryOpacity,
-            })
+                minHeight =
+                    0,
+            },
+
+            {}
         )
+    )
+
+    return
 
 
     ------------------------------------------------
