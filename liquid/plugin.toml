@@ -1,0 +1,73 @@
+id = "dinho/liquid"
+name = "Liquid"
+version = "0.1.0"
+plugin_api = 23
+author = "dinho"
+license = "MIT"
+dependencies = ["cava"]
+tags = ["audio", "visualizer", "cava", "desktop", "liquid"]
+icon = "waveform"
+description = "Audio visualizer with rounded bars driven by CAVA."
+
+[[desktop_widget]]
+id = "liquid"
+entry = "liquid.luau"
+
+[[desktop_widget.setting]]
+key = "bar_width"
+type = "int"
+label_key = "settings.bar_width.label"
+description_key = "settings.bar_width.description"
+default = 8
+min = 2
+max = 30
+
+[[desktop_widget.setting]]
+key = "bar_spacing"
+type = "int"
+label_key = "settings.bar_spacing.label"
+description_key = "settings.bar_spacing.description"
+default = 6
+min = 0
+max = 30
+
+[[desktop_widget.setting]]
+key = "min_height"
+type = "int"
+label_key = "settings.min_height.label"
+description_key = "settings.min_height.description"
+default = 8
+min = 1
+max = 100
+
+[[desktop_widget.setting]]
+key = "max_height"
+type = "int"
+label_key = "settings.max_height.label"
+description_key = "settings.max_height.description"
+default = 180
+min = 20
+max = 500
+
+[[desktop_widget.setting]]
+key = "normal_color"
+type = "color"
+label_key = "settings.normal_color.label"
+description_key = "settings.normal_color.description"
+default = "primary"
+
+[[desktop_widget.setting]]
+key = "highlight_color"
+type = "color"
+label_key = "settings.highlight_color.label"
+description_key = "settings.highlight_color.description"
+default = "secondary"
+
+[[desktop_widget.setting]]
+key = "smoothing"
+type = "int"
+label_key = "settings.smoothing.label"
+description_key = "settings.smoothing.description"
+default = 70
+min = 0
+max = 100

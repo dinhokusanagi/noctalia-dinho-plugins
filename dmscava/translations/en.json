@@ -1,0 +1,46 @@
+{
+  "settings": {
+    "bar_width": {
+      "label": "Bar width",
+      "description": "Width of each visualizer bar."
+    },
+    "bar_spacing": {
+      "label": "Bar spacing",
+      "description": "Space between visualizer bars."
+    },
+    "min_height": {
+      "label": "Minimum height",
+      "description": "Minimum height of the bars."
+    },
+    "max_height": {
+      "label": "Maximum height",
+      "description": "Maximum height of the bars."
+    },
+    "smoothing": {
+      "label": "Smoothing",
+      "description": "Smooth the CAVA response."
+    },
+    "sensitivity": {
+      "label": "Sensitivity",
+      "description": "Visualizer sensitivity."
+    },
+    "opacity": {
+      "label": "Opacity",
+      "description": "Visualizer opacity."
+    },
+    "normal_color": {
+      "label": "Color",
+      "description": "Visualizer color."
+    },
+    "style": {
+      "label": "Style",
+      "description": "Visualizer style.",
+      "options": {
+        "bars": "Bars",
+        "box": "Box",
+        "wall": "Wall",
+        "enderpulse": "EnderPulse"
+      }
+    }
+  }
+}

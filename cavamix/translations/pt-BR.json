@@ -1,0 +1,65 @@
+{
+  "title": "CavaMix",
+  "settings": {
+    "layout": {
+      "label": "Estilo",
+      "description": "Escolha o estilo visual do visualizador",
+      "options": {
+        "bars": "Barras",
+        "jump": "Salto"
+      }
+    },
+    "bar_width": {
+      "label": "Largura das Barras",
+      "description": "Largura de cada barra do visualizador"
+    },
+    "bar_spacing": {
+      "label": "Espaçamento das Barras",
+      "description": "Espaço entre as barras do visualizador"
+    },
+    "min_height": {
+      "label": "Altura Mínima",
+      "description": "Altura mínima do visualizador"
+    },
+    "max_height": {
+      "label": "Altura Máxima",
+      "description": "Altura máxima do visualizador"
+    },
+    "wave_height": {
+      "label": "Altura do Wave",
+      "description": "Percentual da altura das barras no estilo Wave"
+    },
+    "normal_color": {
+      "label": "Cor das barras",
+      "description": "Cor usada pelas barras normais"
+    },
+    "highlight_color": {
+      "label": "Cor de Destaque",
+      "description": "Cor usada pela barra em destaque"
+    },
+    "smoothing": {
+      "label": "Suavização",
+      "description": "Define o quanto o visualizador suaviza as mudanças do áudio"
+    },
+    "opacity": {
+      "label": "Opacidade das barras",
+      "description": "Opacidade das barras normais"
+    },
+    "highlight_opacity": {
+      "label": "Opacidade do destaque",
+      "description": "Opacidade da barra em destaque"
+    },
+    "bar_height": {
+      "label": "Altura das barras",
+      "description": "Altura de cada barra do visualizador"
+    },
+    "sensitivity": {
+      "label": "Sensibilidade",
+      "description": "Intensidade da resposta do visualizador ao áudio"
+    },
+    "speed": {
+      "label": "Velocidade",
+      "description": "Velocidade da animação do visualizador"
+    }
+  }
+}

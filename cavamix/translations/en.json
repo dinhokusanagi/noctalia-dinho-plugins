@@ -1,0 +1,65 @@
+{
+  "title": "CavaMix",
+  "settings": {
+    "layout": {
+      "label": "Layout",
+      "description": "Choose the visual style of the visualizer",
+      "options": {
+        "bars": "Bars",
+        "jump": "Jump"
+      }
+    },
+    "bar_width": {
+      "label": "Bar Width",
+      "description": "Width of each visualizer bar"
+    },
+    "bar_spacing": {
+      "label": "Bar Spacing",
+      "description": "Space between visualizer bars"
+    },
+    "min_height": {
+      "label": "Minimum Height",
+      "description": "Minimum height of the visualizer"
+    },
+    "max_height": {
+      "label": "Maximum Height",
+      "description": "Maximum height of the visualizer"
+    },
+    "wave_height": {
+      "label": "Wave Height",
+      "description": "Percentage of bar height in Wave style"
+    },
+    "normal_color": {
+      "label": "Bar Color",
+      "description": "Color used by regular bars"
+    },
+    "highlight_color": {
+      "label": "Highlight Color",
+      "description": "Color used by the highlighted bar"
+    },
+    "smoothing": {
+      "label": "Smoothing",
+      "description": "How smoothly the visualizer follows audio changes"
+    },
+    "opacity": {
+      "label": "Bar Opacity",
+      "description": "Opacity of regular bars"
+    },
+    "highlight_opacity": {
+      "label": "Highlight Opacity",
+      "description": "Opacity of the highlighted bar"
+    },
+    "bar_height": {
+      "label": "Bar Height",
+      "description": "Height of each visualizer bar"
+    },
+    "sensitivity": {
+      "label": "Sensitivity",
+      "description": "How strongly the visualizer responds to audio"
+    },
+    "speed": {
+      "label": "Speed",
+      "description": "Speed of the visualizer animation"
+    }
+  }
+}

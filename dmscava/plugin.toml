@@ -1,0 +1,97 @@
+id = "dinho/dmscava"
+name = "DMSCava"
+version = "0.1.0"
+plugin_api = 23
+author = "dinho"
+license = "MIT"
+dependencies = ["cava"]
+tags = ["audio", "visualizer", "cava", "desktop", "dmscava"]
+icon = "waveform"
+description = "Desktop audio visualizer driven by CAVA."
+
+[[desktop_widget]]
+id = "dmscava"
+entry = "dmscava.luau"
+
+[[desktop_widget.setting]]
+key = "bar_width"
+type = "int"
+label_key = "settings.bar_width.label"
+description_key = "settings.bar_width.description"
+default = 8
+min = 1
+max = 100
+
+[[desktop_widget.setting]]
+key = "bar_spacing"
+type = "int"
+label_key = "settings.bar_spacing.label"
+description_key = "settings.bar_spacing.description"
+default = 6
+min = 1
+max = 100
+
+[[desktop_widget.setting]]
+key = "min_height"
+type = "int"
+label_key = "settings.min_height.label"
+description_key = "settings.min_height.description"
+default = 8
+min = 1
+max = 100
+
+[[desktop_widget.setting]]
+key = "max_height"
+type = "int"
+label_key = "settings.max_height.label"
+description_key = "settings.max_height.description"
+default = 180
+min = 5
+max = 1000
+
+[[desktop_widget.setting]]
+key = "smoothing"
+type = "int"
+label_key = "settings.smoothing.label"
+description_key = "settings.smoothing.description"
+default = 70
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "sensitivity"
+type = "int"
+label_key = "settings.sensitivity.label"
+description_key = "settings.sensitivity.description"
+default = 100
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "opacity"
+type = "int"
+label_key = "settings.opacity.label"
+description_key = "settings.opacity.description"
+default = 75
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "normal_color"
+type = "color"
+label_key = "settings.normal_color.label"
+description_key = "settings.normal_color.description"
+default = "primary"
+
+[[desktop_widget.setting]]
+key = "style"
+type = "select"
+label_key = "settings.style.label"
+description_key = "settings.style.description"
+default = "enderpulse"
+options = [
+    { value = "bars", label_key = "settings.style.options.bars" },
+    { value = "box", label_key = "settings.style.options.box" },
+    { value = "wall", label_key = "settings.style.options.wall" },
+    { value = "enderpulse", label_key = "settings.style.options.enderpulse" },
+]

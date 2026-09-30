@@ -1,0 +1,716 @@
+--!nonstrict
+
+local BAR_COUNT = 32
+local VISUAL_BAR_COUNT = BAR_COUNT * 2
+
+local DEFAULT_BAR_WIDTH = 8
+local DEFAULT_BAR_SPACING = 6
+local DEFAULT_MIN_HEIGHT = 8
+local DEFAULT_MAX_HEIGHT = 180
+local DEFAULT_SMOOTHING = 70
+
+local bars = {}
+local smoothedBars = {}
+local highlightIndex = 1
+local streamStarted = false
+
+local waveJump = 0
+local waveJumpVelocity = 0
+local waveJumpActive = false
+
+local WAVE_JUMP_IMPULSE = 4.2
+local WAVE_JUMP_GRAVITY = 12.5
+
+local previousPeak = 0
+
+for i = 1, BAR_COUNT do
+    bars[i] = 0
+    smoothedBars[i] = 0
+end
+
+local render
+
+local function numberSetting(key, default)
+    return tonumber(noctalia.getConfig(key)) or default
+end
+
+local function colorSetting(key, default)
+    return noctalia.getConfig(key) or default
+end
+
+local function smoothingAlpha(value)
+    value = math.max(0, math.min(100, value))
+
+    return 0.35
+        - (value / 100) * 0.27
+end
+
+local function parseCavaLine(line)
+    local values = {}
+
+    for value in tostring(line or ""):gmatch("%d+") do
+        if #values < BAR_COUNT then
+            table.insert(
+                values,
+                tonumber(value) or 0
+            )
+        end
+    end
+
+    if #values ~= BAR_COUNT then
+        return nil
+    end
+
+    return values
+end
+
+local function updateSpectrum(values)
+    local smoothing = numberSetting(
+        "smoothing",
+        DEFAULT_SMOOTHING
+    )
+
+    local alpha = smoothingAlpha(smoothing)
+
+    local strongestIndex = highlightIndex
+    local strongestValue = -1
+    local totalValue = 0
+
+    for i = 1, BAR_COUNT do
+        local raw = math.max(
+            0,
+            math.min(
+                1000,
+                values[i] or 0
+            )
+        )
+
+        bars[i] = raw
+
+        smoothedBars[i] =
+            smoothedBars[i]
+            + (raw - smoothedBars[i]) * alpha
+
+        totalValue =
+            totalValue
+            + smoothedBars[i]
+
+        if smoothedBars[i] > strongestValue then
+            strongestValue = smoothedBars[i]
+            strongestIndex = i
+        end
+    end
+
+    local currentValue =
+        smoothedBars[highlightIndex] or 0
+
+    local switchThreshold =
+        math.max(
+            currentValue * 1.08,
+            currentValue + 12
+        )
+
+    if strongestIndex ~= highlightIndex
+        and strongestValue >= switchThreshold then
+
+        highlightIndex =
+            strongestIndex
+    end
+
+    local averageValue =
+        totalValue / BAR_COUNT
+
+    local peakRatio =
+        strongestValue
+        / math.max(
+            averageValue,
+            1
+        )
+
+    local peakDelta =
+        strongestValue
+        - previousPeak
+
+    local jumpTrigger =
+        peakRatio >= 1.65
+        and peakDelta >= 18
+
+    if jumpTrigger
+        and not waveJumpActive then
+
+        waveJump = 0
+
+        waveJumpVelocity =
+            WAVE_JUMP_IMPULSE
+
+        waveJumpActive = true
+    end
+
+    previousPeak = strongestValue
+
+    render()
+end
+
+render = function()
+    local layout =
+        noctalia.getConfig("layout")
+        or "bars"
+
+    local barWidth = numberSetting(
+        "bar_width",
+        DEFAULT_BAR_WIDTH
+    )
+
+    local barSpacing = numberSetting(
+        "bar_spacing",
+        DEFAULT_BAR_SPACING
+    )
+
+    local minHeight = numberSetting(
+        "min_height",
+        DEFAULT_MIN_HEIGHT
+    )
+
+    local maxHeight = numberSetting(
+        "max_height",
+        DEFAULT_MAX_HEIGHT
+    )
+
+    local opacity = numberSetting(
+        "opacity",
+        75
+    )
+
+    local highlightOpacity = numberSetting(
+        "highlight_opacity",
+        100
+    )
+
+    opacity = math.max(
+        0,
+        math.min(
+            100,
+            opacity
+        )
+    )
+
+    highlightOpacity = math.max(
+        0,
+        math.min(
+            100,
+            highlightOpacity
+        )
+    )
+
+    local normalColor = colorSetting(
+        "normal_color",
+        "primary"
+    )
+
+    local highlightColor = colorSetting(
+        "highlight_color",
+        "secondary"
+    )
+
+    if maxHeight < minHeight then
+        maxHeight = minHeight
+    end
+
+    ----------------------------------------------------------------
+    -- WAVE
+    -- Barra grande fixa + bloquinho na base.
+    -- Dois bloquinhos adjacentes recebem highlightColor.
+    ----------------------------------------------------------------
+
+    if layout == "jump" then
+        local children = {}
+
+        local blockSize =
+            math.max(
+                4,
+                barWidth
+            )
+
+        local waveHeightScale =
+            numberSetting(
+                "wave_height",
+                100
+            ) / 100
+
+        local barHeightScale =
+            numberSetting(
+                "bar_height",
+                100
+            ) / 100
+
+        local maxJump =
+            maxHeight * 0.30
+
+        local totalHeight =
+            maxHeight
+            + blockSize
+            + maxJump
+
+        ----------------------------------------------------------------
+        -- Converte o índice do CAVA para UMA posição visual.
+        -- O segundo bloco destacado fica imediatamente ao lado.
+        ----------------------------------------------------------------
+
+        local highlightVisualIndex =
+            math.floor(
+                (
+                    (highlightIndex - 1)
+                    * (VISUAL_BAR_COUNT - 1)
+                    / (BAR_COUNT - 1)
+                )
+                + 1.5
+            )
+
+        local secondHighlightVisualIndex =
+            math.min(
+                VISUAL_BAR_COUNT,
+                highlightVisualIndex + 1
+            )
+
+        for i = 1, VISUAL_BAR_COUNT do
+            local sourcePosition =
+                ((i - 1) * (BAR_COUNT - 1))
+                / (VISUAL_BAR_COUNT - 1)
+                + 1
+
+            local leftIndex =
+                math.floor(sourcePosition)
+
+            local rightIndex =
+                math.min(
+                    BAR_COUNT,
+                    leftIndex + 1
+                )
+
+            local fraction =
+                sourcePosition - leftIndex
+
+            local leftValue =
+                smoothedBars[leftIndex] or 0
+
+            local rightValue =
+                smoothedBars[rightIndex] or 0
+
+            local value =
+                leftValue
+                + (rightValue - leftValue)
+                * fraction
+
+            local normalized =
+                math.max(
+                    0,
+                    math.min(
+                        1,
+                        value / 1000
+                    )
+                )
+
+            local barHeight =
+                (
+                    minHeight
+                    + (maxHeight - minHeight)
+                    * normalized
+                )
+                * waveHeightScale
+
+            barHeight =
+                math.min(
+                    barHeight,
+                    maxHeight * barHeightScale
+                )
+
+            local isHighlighted =
+                i == highlightVisualIndex
+                or i == secondHighlightVisualIndex
+
+            ----------------------------------------------------------------
+            -- O SALTO PERTENCE SOMENTE AO BLOQUINHO.
+            ----------------------------------------------------------------
+
+            local jump =
+                waveJumpActive
+                and (
+                    maxJump
+                    * normalized
+                    * math.min(
+                        waveJump,
+                        1
+                    )
+                )
+                or 0
+
+            table.insert(
+                children,
+                ui.column(
+                    {
+                        align = "center",
+                        justify = "end",
+                        gap = 0,
+
+                        width =
+                            barWidth,
+
+                        height =
+                            totalHeight,
+                    },
+                    {
+                        ----------------------------------------------------------------
+                        -- PARTE MAIOR
+                        -- Sempre permanece na cor normal.
+                        ----------------------------------------------------------------
+
+                        ui.box({
+                            key =
+                                "cavamix-wave-bar-"
+                                .. tostring(i),
+
+                            width =
+                                barWidth,
+
+                            height =
+                                barHeight,
+
+                            radius = 0,
+
+                            softness = 0,
+
+                            opacity =
+                                opacity / 100,
+
+                            fill =
+                                normalColor,
+                        }),
+
+                        ----------------------------------------------------------------
+                        -- ESPAÇO DO SALTO
+                        ----------------------------------------------------------------
+
+                        ui.box({
+                            key =
+                                "cavamix-wave-jump-"
+                                .. tostring(i),
+
+                            width = 1,
+
+                            height =
+                                jump,
+
+                            radius = 0,
+
+                            softness = 0,
+
+                            opacity = 0,
+
+                            fill =
+                                normalColor,
+                        }),
+
+                        ----------------------------------------------------------------
+                        -- BLOQUINHO / BASE
+                        --
+                        -- O bloco principal e o bloco imediatamente
+                        -- ao lado recebem a mesma highlightColor.
+                        ----------------------------------------------------------------
+
+                        ui.box({
+                            key =
+                                "cavamix-wave-block-"
+                                .. tostring(i),
+
+                            width =
+                                blockSize,
+
+                            height =
+                                blockSize,
+
+                            radius = 0,
+
+                            softness = 0,
+
+                            opacity =
+                                isHighlighted
+                                and highlightOpacity / 100
+                                or opacity / 100,
+
+                            fill =
+                                isHighlighted
+                                and highlightColor
+                                or normalColor,
+                        }),
+                    }
+                )
+            )
+        end
+
+        desktopWidget.render(
+            ui.row(
+                {
+                    gap =
+                        barSpacing,
+
+                    align =
+                        "end",
+
+                    justify =
+                        "center",
+
+                    height =
+                        totalHeight,
+                },
+                children
+            )
+        )
+
+        return
+    end
+
+    ----------------------------------------------------------------
+    -- BARS
+    -- Mantém o comportamento original.
+    ----------------------------------------------------------------
+
+    local children = {}
+
+    for i = 1, VISUAL_BAR_COUNT do
+        local sourcePosition =
+            ((i - 1) * (BAR_COUNT - 1))
+            / (VISUAL_BAR_COUNT - 1)
+            + 1
+
+        local leftIndex =
+            math.floor(sourcePosition)
+
+        local rightIndex =
+            math.min(
+                BAR_COUNT,
+                leftIndex + 1
+            )
+
+        local fraction =
+            sourcePosition - leftIndex
+
+        local leftValue =
+            smoothedBars[leftIndex] or 0
+
+        local rightValue =
+            smoothedBars[rightIndex] or 0
+
+        local value =
+            leftValue
+            + (rightValue - leftValue)
+            * fraction
+
+        local isHighlighted =
+            math.abs(
+                sourcePosition - highlightIndex
+            ) < 0.5
+
+        local normalized =
+            math.max(
+                0,
+                math.min(
+                    1,
+                    value / 1000
+                )
+            )
+
+        local height =
+            minHeight
+            + (maxHeight - minHeight)
+            * normalized
+
+        local sourceIndex =
+            math.floor(
+                sourcePosition + 0.5
+            )
+
+        table.insert(
+            children,
+            ui.box({
+                key =
+                    "cavamix-bar-"
+                    .. tostring(i),
+
+                width =
+                    barWidth,
+
+                height =
+                    height,
+
+                radius =
+                    barWidth / 2,
+
+                softness =
+                    6,
+
+                opacity =
+                    sourceIndex == highlightIndex
+                    and highlightOpacity / 100
+                    or opacity / 100,
+
+                fill =
+                    sourceIndex == highlightIndex
+                    and highlightColor
+                    or normalColor,
+            })
+        )
+    end
+
+    desktopWidget.render(
+        ui.row(
+            {
+                gap =
+                    barSpacing,
+
+                align =
+                    "end",
+
+                justify =
+                    "center",
+
+                minHeight =
+                    maxHeight,
+            },
+            children
+        )
+    )
+end
+
+function onFrameTick(deltaMs)
+    if waveJumpActive then
+        local deltaSeconds =
+            math.max(
+                0,
+                deltaMs / 1000
+            )
+
+        waveJumpVelocity =
+            waveJumpVelocity
+            - WAVE_JUMP_GRAVITY
+            * deltaSeconds
+
+        waveJump =
+            waveJump
+            + waveJumpVelocity
+            * deltaSeconds
+
+        waveJump =
+            math.max(
+                0,
+                math.min(
+                    1,
+                    waveJump
+                )
+            )
+
+        if waveJump <= 0
+            and waveJumpVelocity <= 0 then
+
+            waveJump = 0
+
+            waveJumpVelocity = 0
+
+            waveJumpActive = false
+        end
+    end
+
+    render()
+end
+
+local function shellQuote(value)
+    value = tostring(value or "")
+
+    return "'"
+        .. value:gsub(
+            "'",
+            "'\\''"
+        )
+        .. "'"
+end
+
+local function startCava()
+    if streamStarted then
+        return
+    end
+
+    if not noctalia.commandExists("cava") then
+        noctalia.log(
+            "CavaMix: cava was not found in PATH"
+        )
+        return
+    end
+
+    local config = [[
+[general]
+framerate = 60
+bars = 32
+autosens = 1
+
+[input]
+method = pulse
+source = auto
+
+[output]
+method = raw
+channels = mono
+mono_option = average
+reverse = 0
+raw_target = /dev/stdout
+data_format = ascii
+ascii_max_range = 1000
+bar_delimiter = 59
+frame_delimiter = 10
+
+[smoothing]
+integral = 0
+monstercat = 0
+waves = 0
+]]
+
+    local command =
+        "printf '%s\\n' "
+        .. shellQuote(config)
+        .. " | cava -p /dev/stdin"
+
+    local started =
+        noctalia.runStream(
+            command,
+
+            function(line)
+                local values =
+                    parseCavaLine(line)
+
+                if values then
+                    updateSpectrum(values)
+                end
+            end
+        )
+
+    if started then
+        streamStarted = true
+
+        noctalia.log(
+            "CavaMix: CAVA stream started"
+        )
+    else
+        noctalia.log(
+            "CavaMix: failed to start CAVA stream"
+        )
+    end
+end
+
+function update()
+    if not streamStarted then
+        startCava()
+    end
+end
+
+desktopWidget.setNeedsFrameTick(true)
+
+render()
+startCava()

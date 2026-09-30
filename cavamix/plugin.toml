@@ -1,0 +1,145 @@
+id = "dinho/cavamix"
+name = "CavaMix"
+version = "0.1.0"
+plugin_api = 23
+author = "dinho"
+license = "MIT"
+dependencies = ["cava", "playerctl"]
+tags = ["audio", "visualizer", "cava", "desktop", "cavamix"]
+icon = "waveform"
+description = "Audio visualizer with rounded bars driven by CAVA."
+
+[[desktop_widget]]
+id = "cavamix"
+entry = "bars.luau"
+
+[[desktop_widget.setting]]
+key = "bar_width"
+type = "int"
+label_key = "settings.bar_width.label"
+description_key = "settings.bar_width.description"
+default = 5
+min = 2
+max = 30
+
+[[desktop_widget.setting]]
+key = "bar_spacing"
+type = "int"
+label_key = "settings.bar_spacing.label"
+description_key = "settings.bar_spacing.description"
+default = 2
+min = 0
+max = 30
+
+[[desktop_widget.setting]]
+key = "min_height"
+type = "int"
+label_key = "settings.min_height.label"
+description_key = "settings.min_height.description"
+default = 5
+min = 1
+max = 100
+
+[[desktop_widget.setting]]
+key = "max_height"
+type = "int"
+label_key = "settings.max_height.label"
+description_key = "settings.max_height.description"
+default = 180
+min = 5
+max = 500
+
+[[desktop_widget.setting]]
+key = "wave_height"
+type = "int"
+label_key = "settings.wave_height.label"
+description_key = "settings.wave_height.description"
+default = 100
+min = 5
+max = 100
+
+[[desktop_widget.setting]]
+key = "bar_height"
+type = "int"
+label_key = "settings.bar_height.label"
+description_key = "settings.bar_height.description"
+default = 100
+min = 5
+max = 100
+
+[[desktop_widget.setting]]
+key = "smoothing"
+type = "int"
+label_key = "settings.smoothing.label"
+description_key = "settings.smoothing.description"
+default = 70
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "sensitivity"
+type = "int"
+label_key = "settings.sensitivity.label"
+description_key = "settings.sensitivity.description"
+default = 100
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "speed"
+type = "int"
+label_key = "settings.speed.label"
+description_key = "settings.speed.description"
+default = 100
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "normal_color"
+type = "color"
+label_key = "settings.normal_color.label"
+description_key = "settings.normal_color.description"
+default = "primary"
+
+[[desktop_widget.setting]]
+key = "highlight_color"
+type = "color"
+label_key = "settings.highlight_color.label"
+description_key = "settings.highlight_color.description"
+default = "secondary"
+
+[[desktop_widget.setting]]
+key = "opacity"
+type = "int"
+label_key = "settings.opacity.label"
+description_key = "settings.opacity.description"
+default = 75
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "highlight_opacity"
+type = "int"
+label_key = "settings.highlight_opacity.label"
+description_key = "settings.highlight_opacity.description"
+default = 100
+min = 0
+max = 100
+
+[[desktop_widget.setting]]
+key = "hide_when_no_media"
+type = "bool"
+label_key = "settings.hide_when_no_media.label"
+description_key = "settings.hide_when_no_media.description"
+default = false
+
+[[desktop_widget.setting]]
+key = "layout"
+type = "select"
+label_key = "settings.layout.label"
+description_key = "settings.layout.description"
+default = "bars"
+options = [
+    { value = "bars", label_key = "settings.layout.options.bars" },
+    { value = "jump", label_key = "settings.layout.options.jump" },
+]
